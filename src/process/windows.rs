@@ -10,14 +10,16 @@
 //! * Forced stop: `TerminateProcess` on the process and its descendants.
 
 use std::fs::File;
-use std::io;
+use std::io::{self, Write};
+use std::mem::ManuallyDrop;
+use std::os::windows::io::FromRawHandle;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Once, OnceLock};
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_INVALID_PARAMETER, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE,
+    CloseHandle, ERROR_INVALID_PARAMETER, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, STILL_ACTIVE,
     SetHandleInformation,
 };
 use windows_sys::Win32::System::Console::{
@@ -25,8 +27,8 @@ use windows_sys::Win32::System::Console::{
     GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetConsoleCtrlHandler,
 };
 use windows_sys::Win32::System::Threading::{
-    CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, DETACHED_PROCESS, OpenProcess, PROCESS_TERMINATE,
-    TerminateProcess,
+    CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, DETACHED_PROCESS, GetExitCodeProcess, OpenProcess,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, TerminateProcess,
 };
 
 use super::{Graceful, ProcessInfo, ProcessTable};
@@ -37,8 +39,12 @@ static HELPER: OnceLock<PathBuf> = OnceLock::new();
 
 /// Helper exit code: CTRL_BREAK was sent.
 const HELPER_SENT: i32 = 0;
-/// Helper exit code: the console is shared or cannot be attached; force-stop instead.
-const HELPER_UNAVAILABLE: i32 = 3;
+/// Helper exit code: sending CTRL_BREAK failed.
+const HELPER_SEND_FAILED: i32 = 1;
+/// Helper exit code: the console is shared; the other PIDs are on stdout.
+const HELPER_SHARED: i32 = 3;
+/// Helper exit code: the process's console cannot be attached.
+const HELPER_NO_CONSOLE: i32 = 4;
 
 /// Register the executable that implements the hidden `__ctrl-break` command.
 ///
@@ -94,23 +100,45 @@ pub(super) fn spawn_detached(cmd: &CommandLine, rata: &Rata, log: File) -> io::R
 
 pub(super) fn terminate(proc: &ProcessInfo, table: &ProcessTable) -> io::Result<Graceful> {
     let Some(helper) = HELPER.get() else {
-        return Ok(Graceful::Unavailable);
+        return Ok(Graceful::Unavailable("no CTRL_BREAK helper".into()));
     };
     let mut allowed = table.descendants(proc.pid);
     allowed.push(proc.pid);
-    let status = Command::new(helper)
+    let out = Command::new(helper)
         .arg("__ctrl-break")
         .arg(proc.pid.to_string())
         .args(allowed.iter().map(|p| p.to_string()))
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
         .stderr(Stdio::null())
         .creation_flags(DETACHED_PROCESS)
-        .status()?;
-    Ok(match status.code() {
+        .output()?;
+    Ok(match out.status.code() {
         Some(HELPER_SENT) => Graceful::Sent,
-        _ => Graceful::Unavailable,
+        Some(HELPER_SHARED) => Graceful::Unavailable(shared_reason(&out.stdout, table)),
+        Some(HELPER_NO_CONSOLE) => Graceful::Unavailable("no console to attach to".into()),
+        Some(HELPER_SEND_FAILED) => Graceful::Unavailable("CTRL_BREAK failed".into()),
+        code => Graceful::Unavailable(format!("CTRL_BREAK helper exited with {code:?}")),
     })
+}
+
+/// Describe the foreign processes the helper found on the console, e.g.
+/// `shared console with pid 812 (cmd.exe)`.
+fn shared_reason(stdout: &[u8], table: &ProcessTable) -> String {
+    let others: Vec<String> = String::from_utf8_lossy(stdout)
+        .split_whitespace()
+        .filter_map(|s| s.parse::<u32>().ok())
+        .map(
+            |pid| match table.processes().iter().find(|p| p.pid == pid) {
+                Some(p) if !p.name.is_empty() => format!("{pid} ({})", p.name),
+                _ => pid.to_string(),
+            },
+        )
+        .collect();
+    if others.is_empty() {
+        "shared console".into()
+    } else {
+        format!("shared console with pid {}", others.join(", "))
+    }
 }
 
 pub(super) fn kill(proc: &ProcessInfo, table: &ProcessTable) -> io::Result<()> {
@@ -123,7 +151,11 @@ pub(super) fn kill(proc: &ProcessInfo, table: &ProcessTable) -> io::Result<()> {
 fn terminate_pid(pid: u32) -> io::Result<()> {
     // SAFETY: Win32 calls with a handle we open and close here.
     unsafe {
-        let h = OpenProcess(PROCESS_TERMINATE, 0, pid);
+        let h = OpenProcess(
+            PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+            0,
+            pid,
+        );
         if h.is_null() {
             let err = io::Error::last_os_error();
             // The process no longer exists.
@@ -134,8 +166,12 @@ fn terminate_pid(pid: u32) -> io::Result<()> {
         }
         let ok = TerminateProcess(h, 1);
         let err = io::Error::last_os_error();
+        // TerminateProcess fails with "access denied" on a process that is
+        // already exiting; that counts as stopped.
+        let mut code = 0u32;
+        let exited = GetExitCodeProcess(h, &mut code) != 0 && code != STILL_ACTIVE as u32;
         CloseHandle(h);
-        if ok == 0 { Err(err) } else { Ok(()) }
+        if ok == 0 && !exited { Err(err) } else { Ok(()) }
     }
 }
 
@@ -146,26 +182,38 @@ unsafe extern "system" fn ignore_ctrl(_ctrl_type: u32) -> windows_sys::core::BOO
 /// Body of the hidden `__ctrl-break <pid> [allowed-pid...]` command.
 ///
 /// Returns the process exit code: 0 if CTRL_BREAK was sent, 3 if the console
-/// is shared with other processes or cannot be attached, 1 on other failures.
+/// is shared with other processes (their PIDs are written to stdout), 4 if it
+/// cannot be attached, 1 if sending failed.
 pub fn ctrl_break_helper_main(pid: u32, allowed: &[u32]) -> i32 {
     let me = std::process::id();
-    // SAFETY: console API calls on our own (helper) process.
+    // SAFETY: console API calls on our own (helper) process. The stdout
+    // handle is taken before the console changes and is never closed here.
     unsafe {
+        let mut out = ManuallyDrop::new(File::from_raw_handle(GetStdHandle(STD_OUTPUT_HANDLE)));
         FreeConsole();
         if AttachConsole(pid) == 0 {
-            return HELPER_UNAVAILABLE;
+            return HELPER_NO_CONSOLE;
         }
         let mut list = [0u32; 256];
         let n = GetConsoleProcessList(list.as_mut_ptr(), list.len() as u32) as usize;
-        let shared =
-            n == 0 || n > list.len() || list[..n].iter().any(|p| *p != me && !allowed.contains(p));
-        if shared {
+        let others: Vec<u32> = list[..n.min(list.len())]
+            .iter()
+            .copied()
+            .filter(|p| *p != me && !allowed.contains(p))
+            .collect();
+        if n == 0 || n > list.len() || !others.is_empty() {
             FreeConsole();
-            return HELPER_UNAVAILABLE;
+            let text: Vec<String> = others.iter().map(|p| p.to_string()).collect();
+            let _ = writeln!(out, "{}", text.join(" "));
+            return HELPER_SHARED;
         }
         SetConsoleCtrlHandler(Some(ignore_ctrl), 1);
         let ok = GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, 0);
         FreeConsole();
-        if ok == 0 { 1 } else { HELPER_SENT }
+        if ok == 0 {
+            HELPER_SEND_FAILED
+        } else {
+            HELPER_SENT
+        }
     }
 }

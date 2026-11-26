@@ -223,12 +223,13 @@ fn describe_io(e: &io::Error) -> String {
 // ---------------------------------------------------------------- stop
 
 /// Why a stop needed force.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ForceReason {
     /// The process did not exit within the graceful timeout.
     Timeout(Duration),
-    /// No graceful stop was possible (Windows: shared or unattachable console).
-    NoGraceful,
+    /// No graceful stop was possible (Windows: shared or unattachable
+    /// console). The text says why.
+    NoGraceful(String),
 }
 
 /// Why one process could not be stopped.
@@ -330,17 +331,21 @@ fn stop_one(rata: &Rata, svc: &Service, timeout: Duration) -> StopOutcome {
     let mut failures = Vec::new();
     let mut waiting = Vec::new();
     let mut kill_now = Vec::new();
+    let mut no_graceful = None;
     for p in &procs {
         match process::terminate(p, &table) {
             Ok(Graceful::Sent) => waiting.push(p.clone()),
-            Ok(Graceful::Unavailable) => kill_now.push(p.clone()),
+            Ok(Graceful::Unavailable(why)) => {
+                no_graceful.get_or_insert(why);
+                kill_now.push(p.clone());
+            }
             Err(e) => failures.push(failure(p.pid, &e, process::GRACEFUL_SIGNAL)),
         }
     }
 
     let timed_out = wait_for_exit(&waiting, timeout);
-    let forced = if !kill_now.is_empty() {
-        Some(ForceReason::NoGraceful)
+    let forced = if let Some(why) = no_graceful {
+        Some(ForceReason::NoGraceful(why))
     } else if !timed_out.is_empty() {
         Some(ForceReason::Timeout(timeout))
     } else {

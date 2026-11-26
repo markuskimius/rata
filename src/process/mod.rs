@@ -191,12 +191,13 @@ pub fn spawn_detached(cmd: &CommandLine, rata: &Rata, log: File) -> io::Result<C
 }
 
 /// Result of asking a process to stop gracefully.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Graceful {
     /// The graceful stop signal was delivered (or the process was already gone).
     Sent,
     /// A graceful stop is not possible for this process; force-stop it instead.
-    Unavailable,
+    /// The text says why, e.g. `shared console with pid 812 (cmd.exe)`.
+    Unavailable(String),
 }
 
 /// Ask `proc` to stop gracefully (SIGTERM on Unix, CTRL_BREAK on Windows).

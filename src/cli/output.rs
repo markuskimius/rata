@@ -139,8 +139,8 @@ impl<'a> Printer<'a> {
                     ForceReason::Timeout(t) => {
                         format!("did not exit within {}s; killed", t.as_secs())
                     }
-                    ForceReason::NoGraceful => {
-                        "no graceful stop possible (shared console); killed".into()
+                    ForceReason::NoGraceful(why) => {
+                        format!("no graceful stop possible ({why}); killed")
                     }
                 };
                 out!(
