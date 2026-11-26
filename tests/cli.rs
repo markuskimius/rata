@@ -16,9 +16,17 @@ use serde_json::Value;
 fn testsvc() -> &'static Path {
     static PATH: OnceLock<PathBuf> = OnceLock::new();
     PATH.get_or_init(|| {
+        // Examples are uplifted to <target>/<profile>/examples. Test binaries
+        // live somewhere below <target>/<profile>, and the exact folder differs
+        // between Cargo versions, so search upward from the test binary.
+        let file = format!("testsvc{}", std::env::consts::EXE_SUFFIX);
         let exe = std::env::current_exe().unwrap();
-        let dir = exe.parent().unwrap().parent().unwrap().join("examples");
-        let path = dir.join(format!("testsvc{}", std::env::consts::EXE_SUFFIX));
+        let found = exe
+            .ancestors()
+            .skip(1)
+            .map(|dir| dir.join("examples").join(&file))
+            .find(|p| p.is_file());
+        let path = found.unwrap_or_else(|| exe.parent().unwrap().join("examples").join(&file));
         if !path.exists() {
             let ok = StdCommand::new(env!("CARGO"))
                 .args(["build", "--example", "testsvc"])
@@ -26,6 +34,12 @@ fn testsvc() -> &'static Path {
                 .unwrap()
                 .success();
             assert!(ok, "could not build the testsvc example");
+            return exe
+                .ancestors()
+                .skip(1)
+                .map(|dir| dir.join("examples").join(&file))
+                .find(|p| p.is_file())
+                .expect("testsvc example not found after building it");
         }
         path
     })

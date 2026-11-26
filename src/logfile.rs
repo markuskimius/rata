@@ -7,33 +7,31 @@ use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Local, TimeZone};
+use jiff::civil::DateTime;
 
-/// The file name for a start of `name` at `time` with counter `n`.
-pub fn file_name<Tz: TimeZone>(name: &str, time: &DateTime<Tz>, n: u32) -> String
-where
-    Tz::Offset: std::fmt::Display,
-{
-    format!("{name}_{}.{n}.log", time.format("%Y%m%d_%H%M%S"))
+/// The file name for a start of `name` at local wall-clock `time` with counter `n`.
+pub fn file_name(name: &str, time: &DateTime, n: u32) -> String {
+    format!(
+        "{name}_{:04}{:02}{:02}_{:02}{:02}{:02}.{n}.log",
+        time.year(),
+        time.month(),
+        time.day(),
+        time.hour(),
+        time.minute(),
+        time.second()
+    )
 }
 
 /// Create a new log file for `name` in `dir`, stamped with the current local time.
 pub fn create(dir: &Path, name: &str) -> io::Result<(PathBuf, File)> {
-    create_at(dir, name, &Local::now())
+    create_at(dir, name, &jiff::ZonedDateTime::now().datetime())
 }
 
 /// Create a new log file for `name` in `dir`, stamped with `time`.
 ///
 /// The file is created only if no file with that name exists, so two rata
 /// processes can never write to the same log.
-pub fn create_at<Tz: TimeZone>(
-    dir: &Path,
-    name: &str,
-    time: &DateTime<Tz>,
-) -> io::Result<(PathBuf, File)>
-where
-    Tz::Offset: std::fmt::Display,
-{
+pub fn create_at(dir: &Path, name: &str, time: &DateTime) -> io::Result<(PathBuf, File)> {
     for n in 0.. {
         let path = dir.join(file_name(name, time, n));
         match OpenOptions::new().write(true).create_new(true).open(&path) {
@@ -81,13 +79,9 @@ fn parse(file: &str, name: &str) -> Option<(String, String, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{FixedOffset, TimeZone};
 
-    fn t(s: u32) -> DateTime<FixedOffset> {
-        FixedOffset::east_opt(0)
-            .unwrap()
-            .with_ymd_and_hms(2026, 11, 25, 14, 32, s)
-            .unwrap()
+    fn t(s: i8) -> DateTime {
+        jiff::civil::date(2026, 11, 25).at(14, 32, s, 0)
     }
 
     #[test]
