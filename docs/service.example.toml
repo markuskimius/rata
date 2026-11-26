@@ -1,0 +1,47 @@
+# rata service configuration
+#
+# Copy this file to $RATA/work/cfg/service.toml and edit it.
+# Run `rata check` to validate it and see what each service matches.
+
+# Config format version. Optional; only 1 is supported.
+version = 1
+
+# Each [[service]] table defines one service. Services start in the order
+# they appear here and stop in reverse order.
+
+[[service]]
+# Required. Letters, digits, and _, not starting with a digit (max 64).
+name = "web_api"
+
+# Optional. A short, human-readable name shown by `rata status`.
+description = "Web API Server"
+
+# Required. The command `rata start` runs. ${RATA} is replaced with the RATA
+# directory. The string is split into arguments (Unix shell quoting on Linux
+# and macOS, Windows quoting on Windows) and run directly, without a shell.
+# Using a full path (such as ${RATA}/bin/...) keeps the match unique to this
+# install, and lets rata detect the service even if it was started by hand.
+start = "${RATA}/bin/api --port 8080"
+
+[[service]]
+name = "worker"
+description = "Background Job Worker"
+
+# A command can also be an array of arguments, used exactly as written.
+start = ["java", "-jar", "${RATA}/lib/worker.jar"]
+
+# Optional. Seconds `rata stop` waits for a graceful exit before
+# force-killing. Default 10, maximum 3600.
+stop_timeout = 30
+
+[[service]]
+name = "proxy"
+description = "Reverse Proxy"
+
+# Shell features (pipes, &&, redirection) need an explicit shell...
+start = ["sh", "-c", "exec ${RATA}/bin/proxy --config ${RATA}/etc/proxy.conf"]
+
+# ...and then a psline. A process belongs to a service when its command line
+# EXACTLY equals psline (or start, when psline is not set). Use the command
+# line shown by `rata check` or `rata status -v` ("near miss") to fill it in.
+psline = "${RATA}/bin/proxy --config ${RATA}/etc/proxy.conf"

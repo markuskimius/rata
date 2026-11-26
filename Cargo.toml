@@ -1,0 +1,65 @@
+[package]
+name = "rata"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "MIT OR Apache-2.0"
+description = "Start, stop, and monitor long-running services"
+repository = "https://github.com/markuskimius/rata"
+readme = "README.md"
+keywords = ["service", "process", "supervisor", "cli"]
+categories = ["command-line-utilities"]
+include = [
+    "src/**",
+    "tests/**",
+    "examples/**",
+    "docs/service.example.toml",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE-*",
+]
+
+[features]
+default = ["cli"]
+service = ["dep:sysinfo", "dep:libc", "dep:windows-sys"]
+cli = ["service", "dep:clap", "dep:serde_json"]
+
+[[bin]]
+name = "rata"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[[example]]
+name = "testsvc"
+path = "examples/testsvc.rs"
+test = false
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+serde = { version = "1", features = ["derive"] }
+shell-words = "1"
+thiserror = "2"
+toml = "1"
+clap = { version = "4", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+sysinfo = { version = "0.38", default-features = false, features = ["system", "user"], optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Console",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+serde_json = "1"
+tempfile = "3"
+
+[[test]]
+name = "cli"
+required-features = ["cli"]
