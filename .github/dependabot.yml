@@ -11,6 +11,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Its ref is a Rust version or channel (@1.89 is the MSRV, @stable),
+      # not an action version, so Dependabot "updates" are always wrong.
+      - dependency-name: dtolnay/rust-toolchain
     groups:
       actions:
         patterns: ["*"]
