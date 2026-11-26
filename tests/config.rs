@@ -90,7 +90,7 @@ fn field_errors() {
         err("[[service]]\nname = \"a\"\nstart = 5\n").contains("a string or an array of strings")
     );
     assert!(
-        err("[[service]]\nname = \"a\"\nstart = \"x\"\npsline = \"'oops\"\n")
+        err("[[service]]\nname = \"a\"\nstart = \"x\"\npsline = \"\\\"oops\"\n")
             .contains("psline: missing closing quote")
     );
     assert!(
