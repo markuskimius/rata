@@ -6,6 +6,7 @@ rust-version = "1.89"
 license = "MIT OR Apache-2.0"
 description = "Start, stop, and monitor long-running services"
 repository = "https://github.com/markuskimius/rata"
+homepage = "https://github.com/markuskimius/rata"
 readme = "README.md"
 keywords = ["service", "process", "supervisor", "cli"]
 categories = ["command-line-utilities"]
