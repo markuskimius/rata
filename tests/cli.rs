@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 use std::sync::OnceLock;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -93,6 +93,9 @@ impl Env {
         let mut c = Command::cargo_bin("rata").unwrap();
         c.env("RATA", self.root())
             .env("RATA_LOCK_TIMEOUT", "5")
+            // A hang (e.g. a service holding rata's stdout open) fails the
+            // test instead of stalling CI.
+            .timeout(Duration::from_secs(60))
             .args(args);
         c
     }

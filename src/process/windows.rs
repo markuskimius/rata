@@ -14,12 +14,15 @@ use std::io;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::OnceLock;
+use std::sync::{Once, OnceLock};
 
-use windows_sys::Win32::Foundation::{CloseHandle, ERROR_INVALID_PARAMETER};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, ERROR_INVALID_PARAMETER, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE,
+    SetHandleInformation,
+};
 use windows_sys::Win32::System::Console::{
     AttachConsole, CTRL_BREAK_EVENT, FreeConsole, GenerateConsoleCtrlEvent, GetConsoleProcessList,
-    SetConsoleCtrlHandler,
+    GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetConsoleCtrlHandler,
 };
 use windows_sys::Win32::System::Threading::{
     CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, DETACHED_PROCESS, OpenProcess, PROCESS_TERMINATE,
@@ -45,7 +48,32 @@ pub fn set_ctrl_break_helper(exe: PathBuf) {
     let _ = HELPER.set(exe);
 }
 
+/// Stop rata's own stdin, stdout, and stderr from leaking into services.
+///
+/// `CreateProcess` passes every inheritable handle to the child, not just the
+/// ones in its startup info. The std handles rata received from its parent
+/// are inheritable, so without this a service would hold rata's stdout open
+/// for as long as it runs, and whatever reads rata's output (a pipe, `$(...)`,
+/// a test harness) would never see end-of-file. Rust's `Stdio::inherit`
+/// duplicates the handle when it needs an inheritable one, so this is safe.
+fn disinherit_std_handles() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        for id in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+            // SAFETY: GetStdHandle/SetHandleInformation on our own std handles;
+            // failures (no handle, not a real handle) are harmless and ignored.
+            unsafe {
+                let h = GetStdHandle(id);
+                if !h.is_null() && h != INVALID_HANDLE_VALUE {
+                    SetHandleInformation(h, HANDLE_FLAG_INHERIT, 0);
+                }
+            }
+        }
+    });
+}
+
 pub(super) fn spawn_detached(cmd: &CommandLine, rata: &Rata, log: File) -> io::Result<Child> {
+    disinherit_std_handles();
     let program = cmd.program();
     let path = Path::new(program);
     let exe = if path.is_relative() && (program.contains('\\') || program.contains('/')) {
