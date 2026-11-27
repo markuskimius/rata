@@ -21,6 +21,7 @@ use crate::error::Error;
 use crate::lock::Lock;
 use crate::service;
 
+mod mon;
 mod output;
 
 use output::Printer;
@@ -93,6 +94,16 @@ skipped.";
 
 const STATUS_AFTER_HELP: &str = "\
 Exit status is 0 if all listed services are running, 3 if any are stopped.";
+
+const MON_AFTER_HELP: &str = "\
+Shows the newest sample that rata-monitor (the RATA_MONITOR service)
+recorded in $RATA/work/monitor: host CPU, memory, disks, and network, and
+each service's state, CPU, memory (RSS), and uptime. Rates are per second,
+averaged over the sample interval. Naming services shows only those, without
+host stats. The data is out of date when it is older than two intervals.
+
+Exit status is 0 if the data is current and every service shown is running,
+3 if not.";
 
 const INIT_AFTER_HELP: &str = "\
 Creates the work/ tree, a service.toml that runs the rata monitor
@@ -201,6 +212,22 @@ enum Command {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+    },
+
+    /// Show the latest host and service stats from the rata monitor
+    #[command(help_template = SUB_TEMPLATE, after_help = MON_AFTER_HELP)]
+    Mon {
+        /// Services to show (default: all, with host stats)
+        #[arg(value_name = "NAME")]
+        names: Vec<String>,
+
+        /// Output as JSON
+        #[arg(long, conflicts_with = "watch")]
+        json: bool,
+
+        /// Redraw every second until interrupted (Ctrl-C)
+        #[arg(short, long)]
+        watch: bool,
     },
 
     /// Set up a new rata install in an empty directory
@@ -378,6 +405,12 @@ fn dispatch(cli: Cli) -> Result<u8, Error> {
                 },
             )
         }
+        Command::Mon { names, json, watch } => mon::run(&mon::Options {
+            names,
+            json,
+            watch,
+            quiet,
+        }),
         Command::Init { dir } => {
             let root = crate::init::target_dir(dir)?;
             let report = crate::init::init(&root)?;

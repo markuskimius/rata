@@ -745,3 +745,79 @@ fn monitor_rejects_arguments_and_bad_config() {
         .code(2)
         .stderr(predicate::str::contains("monitor.toml:1:12"));
 }
+
+#[test]
+fn mon_shows_latest_sample() {
+    let env = Env::new("mon");
+    env.monitored(true);
+    env.rata(&["mon"]).assert().code(3).stderr(predicate::str::contains(
+        "no samples recorded yet; RATA_MONITOR is not running (start it with: rata start RATA_MONITOR)",
+    ));
+    env.rata(&["start"]).assert().code(0);
+    wait_for_rows(&env, 3);
+
+    // IDLE (explicit_start) is not running, so the exit status is 3.
+    env.rata(&["mon"]).assert().code(3).stdout(
+        predicate::str::is_match(r"^Sampled \d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{9} [+-]\d{4}")
+            .unwrap()
+            .and(predicate::str::contains("\nHOST "))
+            .and(predicate::str::contains("\nMEMORY "))
+            .and(predicate::str::is_match(r"\nRATA_MONITOR +running +\d+").unwrap())
+            .and(predicate::str::is_match(r"\nWEB +running +\d+ +1 ").unwrap())
+            .and(predicate::str::is_match(r"\nIDLE +stopped +- ").unwrap()),
+    );
+    // Names: only those services, no host stats; any case.
+    env.rata(&["mon", "web"]).assert().code(0).stdout(
+        predicate::str::contains("WEB ")
+            .and(predicate::str::contains("HOST").not())
+            .and(predicate::str::contains("IDLE").not()),
+    );
+    env.rata(&["mon", "nope"]).assert().code(2);
+    env.rata(&["-q", "mon", "WEB"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::is_empty());
+
+    let out = env.rata(&["mon", "--json"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(3));
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["version"], 1);
+    assert_eq!(v["fresh"], true);
+    assert_eq!(v["monitor"], "running");
+    assert_eq!(v["interval_secs"], 5);
+    assert!(v["host"]["mem_total"].as_u64().unwrap() > 0);
+    let t: rata::datetime::RataTime = v["time"].as_str().unwrap().parse().unwrap();
+    assert!(t.timestamp <= jiff::Timestamp::now());
+    let svcs = v["services"].as_array().unwrap();
+    assert_eq!(svcs.len(), 3);
+    assert_eq!(svcs[1]["name"], "WEB");
+    assert_eq!(svcs[1]["state"], "running");
+    assert!(svcs[1]["rss"].as_u64().unwrap() > 0);
+    assert_eq!(svcs[2]["state"], "stopped");
+    assert!(svcs[2]["pid"].is_null());
+
+    // --watch redraws until killed.
+    let mut child = StdCommand::new(env!("CARGO_BIN_EXE_rata"))
+        .env("RATA", env.root())
+        .args(["mon", "--watch", "WEB"])
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(2500));
+    child.kill().unwrap();
+    let out = child.wait_with_output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.matches("\x1b[H").count() >= 2, "{text:?}");
+    assert!(text.contains("WEB "), "{text:?}");
+    env.rata(&["mon", "--watch", "--json"]).assert().code(2);
+    env.rata(&["-q", "mon", "--watch"]).assert().code(2);
+
+    // Once the monitor stops, its data is out of date.
+    env.rata(&["stop", "RATA_MONITOR"]).assert().code(0);
+    env.rata(&["mon", "WEB"])
+        .assert()
+        .code(3)
+        .stderr(predicate::str::contains(
+            "RATA_MONITOR is not running (start it with: rata start RATA_MONITOR)",
+        ));
+}
