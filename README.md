@@ -243,8 +243,8 @@ MEMORY   9.0 GiB of 16 GiB (56%)   swap 0 B of 2.0 GiB
 DISK             SIZE     USED     FREE  USE%   READ/S  WRITE/S
 /             494 GiB  212 GiB  282 GiB   43%  1.2 MiB  340 KiB
 
-NETWORK     RX/S     TX/S  ERRORS
-en0      1.6 KiB  412 B         0
+NETWORK     RX/S     TX/S  ERRORS  DROPPED
+en0      1.6 KiB    412 B       0        0
 
 SERVICE       STATE     PID  PROCS   CPU      RSS     UPTIME
 RATA_MONITOR  running  4100      1  0.2%   12 MiB  6d 03:10
@@ -307,7 +307,7 @@ The monitor appends to one file per kind of row per local day, in
 |---|---|---|
 | `system_YYYYMMDD.csv` | sample | `cpu_pct, load1, load5, load15, cores, mem_total, mem_used, mem_avail, swap_total, swap_used, uptime_s` |
 | `disk_YYYYMMDD.csv` | filesystem | `mount, fs, total, used, avail, read, written` |
-| `net_YYYYMMDD.csv` | network interface | `iface, rx_bytes, tx_bytes, rx_packets, tx_packets, rx_errors, tx_errors` |
+| `net_YYYYMMDD.csv` | network interface | `iface, rx_bytes, tx_bytes, rx_packets, tx_packets, rx_errors, tx_errors, rx_dropped, tx_dropped` |
 | `service_YYYYMMDD.csv` | configured service | `service, state, pid, procs, cpu_pct, rss, disk_read, disk_written, uptime_s` |
 
 ```csv
@@ -327,6 +327,14 @@ time,service,state,pid,procs,cpu_pct,rss,disk_read,disk_written,uptime_s
   console host that rata gives each service). Stopped services get a row too, with
   `state` set to `stopped`.
 - `mem_used` is `mem_total - mem_avail`.
+- `rx_errors` and `tx_errors` are the interface's error counters: packets
+  received damaged or malformed (CRC, framing, length errors, overruns)
+  and packets that could not be sent. They do not include dropped packets,
+  which are in `rx_dropped` and `tx_dropped`: packets discarded without an
+  error, such as when a queue or buffer was full. These come from
+  `/sys/class/net/<iface>/statistics` on Linux, the interface's input queue
+  drops and send queue drops on macOS, and `InDiscards` and `OutDiscards` on
+  Windows. `rata mon` shows each pair summed, as `ERRORS` and `DROPPED`.
 - Every sample is written and flushed as it is taken, so a crash loses at
   most the sample in progress.
 - **The monitor never deletes files.** It writes only today's files; once a
@@ -387,7 +395,7 @@ missing, and the monitor creates `monitor/`.
 
 ```toml
 [dependencies]
-rata = { version = "0.2", default-features = false, features = ["service"] }
+rata = { version = "0.3", default-features = false, features = ["service"] }
 ```
 
 | Feature | Provides |

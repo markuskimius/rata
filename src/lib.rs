@@ -20,7 +20,7 @@
 //! | `cli` | yes | `cli` and the `rata` binary (implies `service` and `monitor`) |
 //!
 //! Library users that do not need the CLI can depend on
-//! `rata = { version = "0.1", default-features = false, features = ["service"] }`.
+//! `rata = { version = "0.3", default-features = false, features = ["service"] }`.
 
 #![warn(missing_docs)]
 

@@ -235,6 +235,11 @@ pub struct NetRow {
     pub rx_errors: Option<u64>,
     /// Send errors during the interval.
     pub tx_errors: Option<u64>,
+    /// Packets dropped on receive during the interval (where the platform
+    /// reports it; see [`netdrops`](super::netdrops)).
+    pub rx_dropped: Option<u64>,
+    /// Packets dropped on send during the interval.
+    pub tx_dropped: Option<u64>,
 }
 
 impl Row for NetRow {
@@ -248,6 +253,8 @@ impl Row for NetRow {
         "tx_packets",
         "rx_errors",
         "tx_errors",
+        "rx_dropped",
+        "tx_dropped",
     ];
 
     fn time(&self) -> RataTime {
@@ -264,6 +271,8 @@ impl Row for NetRow {
             opt(self.tx_packets),
             opt(self.rx_errors),
             opt(self.tx_errors),
+            opt(self.rx_dropped),
+            opt(self.tx_dropped),
         ]
     }
 
@@ -277,6 +286,8 @@ impl Row for NetRow {
             tx_packets: f.opt("tx_packets"),
             rx_errors: f.opt("rx_errors"),
             tx_errors: f.opt("tx_errors"),
+            rx_dropped: f.opt("rx_dropped"),
+            tx_dropped: f.opt("tx_dropped"),
         })
     }
 }
@@ -442,6 +453,8 @@ mod tests {
             tx_packets: Some(4),
             rx_errors: Some(0),
             tx_errors: None,
+            rx_dropped: Some(7),
+            tx_dropped: None,
         });
         round_trip(ServiceRow::stopped(t(), "CACHE"));
         round_trip(ServiceRow {
