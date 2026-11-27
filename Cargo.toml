@@ -1,6 +1,6 @@
 [package]
 name = "rata"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
@@ -8,7 +8,7 @@ description = "Start, stop, and monitor long-running services"
 repository = "https://github.com/markuskimius/rata"
 homepage = "https://github.com/markuskimius/rata"
 readme = "README.md"
-keywords = ["service", "process", "supervisor", "cli"]
+keywords = ["service", "process", "supervisor", "monitoring", "cli"]
 categories = ["command-line-utilities"]
 include = [
     "src/**",

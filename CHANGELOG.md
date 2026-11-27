@@ -6,6 +6,12 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-26
+
+To add the monitor to an install set up with 0.1, add the `RATA_MONITOR`
+service to the top of `service.toml` (see "Upgrading an install from rata
+0.1" in the README) and run `rata start RATA_MONITOR`.
+
 ### Added
 
 - `rata init [DIR]` sets up a new install in an empty directory (hidden
@@ -68,6 +74,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Prebuilt binaries for Linux, macOS, and Windows (x86_64 and ARM64) on
   GitHub Releases, with shell and PowerShell installers.
 
-[Unreleased]: https://github.com/markuskimius/rata/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/markuskimius/rata/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/markuskimius/rata/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/markuskimius/rata/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/markuskimius/rata/releases/tag/v0.1.0
