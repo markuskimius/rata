@@ -101,10 +101,10 @@ or must be empty; hidden files (names starting with a dot) do not count.
 rata init never changes an existing install.";
 
 const CHECK_AFTER_HELP: &str = "\
-Validates $RATA/work/cfg/service.toml, then shows each service's start
-command and psline as rata splits them, the processes matching right now,
-and near misses: processes running the same program with different
-arguments. Exit status is 0 if the config is valid, 2 if not.";
+Validates $RATA/work/cfg/service.toml and monitor.toml, then shows each
+service's start command and psline as rata splits them, the processes
+matching right now, and near misses: processes running the same program with
+different arguments. Exit status is 0 if the config is valid, 2 if not.";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -387,8 +387,10 @@ fn dispatch(cli: Cli) -> Result<u8, Error> {
         Command::Check => {
             let (rata, config) = load()?;
             let all: Vec<_> = config.services.iter().collect();
+            let monitor = crate::monitor::MonitorConfig::load(&rata)?;
             let p = Printer::new(&rata, &all, quiet);
             p.check(&config, &service::check(&rata, &config));
+            p.check_monitor(&monitor);
             Ok(EXIT_OK)
         }
     }

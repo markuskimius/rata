@@ -445,7 +445,7 @@ pub fn validate_name(name: &str) -> std::result::Result<(), String> {
 }
 
 /// Convert a byte offset into a 1-based (line, column) pair.
-fn line_col(text: &str, offset: usize) -> (usize, usize) {
+pub(crate) fn line_col(text: &str, offset: usize) -> (usize, usize) {
     let before = &text[..offset.min(text.len())];
     let line = before.matches('\n').count() + 1;
     let column = before.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;

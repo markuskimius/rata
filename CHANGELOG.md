@@ -12,6 +12,20 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   files do not count): the `work/` tree, a `service.toml` that runs the rata
   monitor (`RATA_MONITOR`, with `explicit_stop = true`), and a commented
   `monitor.toml`. Without `DIR` it uses `$RATA`.
+- The rata monitor: `rata-monitor`, a second binary, records host stats
+  (CPU, load, memory, swap, disks, network) and per-service stats (state,
+  process count, CPU, memory, disk I/O, uptime) every 30 seconds, as daily
+  CSV files in `$RATA/work/monitor`. Run it as the `RATA_MONITOR` service.
+  Settings are in the optional `$RATA/work/cfg/monitor.toml` (`interval`,
+  `system`, `[disks] exclude`, `[net] exclude`). It never deletes files;
+  older days' files never change.
+- `monitor` library feature (`rata::monitor`), included in `cli`.
+- `rata check` also validates `monitor.toml`.
+- Windows: a service whose program is a bare name of a program installed
+  next to `rata.exe` (such as `rata-monitor`) runs from a copy in
+  `$RATA\work\run\bin`, so a running service never blocks an upgrade.
+- `service::current_logs` lists the log files that running services may
+  still write to.
 - `explicit_start` and `explicit_stop` service options: `start`, `stop`, and
   `restart` without names skip such services. Name them, or pass the new
   `--all` option, to include them. Skipped services are listed in the output.

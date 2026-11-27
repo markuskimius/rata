@@ -322,6 +322,24 @@ impl<'a> Printer<'a> {
         }
     }
 
+    pub(super) fn check_monitor(&self, m: &crate::monitor::MonitorConfig) {
+        let what = format!(
+            "every {}s, host stats {}",
+            m.interval.as_secs(),
+            if m.system { "on" } else { "off" }
+        );
+        out!(self, "");
+        if m.exists {
+            out!(self, "monitor {} OK ({what})", self.path(&m.path));
+        } else {
+            out!(
+                self,
+                "monitor {} not found; defaults ({what})",
+                self.path(&m.path)
+            );
+        }
+    }
+
     fn near_misses(&self, indent: &str, misses: &[ProcessInfo]) {
         for p in misses.iter().take(MAX_NEAR_MISSES) {
             out!(

@@ -16,7 +16,8 @@
 //! |---|---|---|
 //! | *(none)* | | [`env`](mod@env), [`config`], [`cmdline`], [`logfile`], [`datetime`], [`init`], [`Error`] |
 //! | `service` | | `process`, `service`, `lock`: finding, starting, and stopping processes |
-//! | `cli` | yes | `cli` and the `rata` binary (implies `service`) |
+//! | `monitor` | | [`monitor`](mod@monitor) and the `rata-monitor` binary (implies `service`) |
+//! | `cli` | yes | `cli` and the `rata` binary (implies `service` and `monitor`) |
 //!
 //! Library users that do not need the CLI can depend on
 //! `rata = { version = "0.1", default-features = false, features = ["service"] }`.
@@ -33,6 +34,8 @@ pub mod logfile;
 
 #[cfg(feature = "service")]
 pub mod lock;
+#[cfg(feature = "monitor")]
+pub mod monitor;
 #[cfg(feature = "service")]
 pub mod process;
 #[cfg(feature = "service")]

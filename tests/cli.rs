@@ -135,7 +135,15 @@ impl Env {
 
 impl Drop for Env {
     fn drop(&mut self) {
-        // Kill anything this test left running.
+        // Stop services without a tag (such as RATA_MONITOR) that this
+        // test left running.
+        if self.root().join("work/cfg/service.toml").is_file() {
+            let _ = StdCommand::new(env!("CARGO_BIN_EXE_rata"))
+                .env("RATA", self.root())
+                .args(["-q", "stop", "--all", "-t", "2"])
+                .output();
+        }
+        // Kill anything else this test left running.
         let table = rata::process::scan();
         for p in table.processes() {
             if p.cmdline.iter().any(|a| a.starts_with(&self.tag)) {
@@ -574,4 +582,166 @@ fn init_sets_up_an_empty_directory() {
     c.assert()
         .code(2)
         .stderr(predicate::str::contains("DIR must be an absolute path"));
+}
+
+/// Path to the built `rata-monitor` binary.
+fn rata_monitor() -> PathBuf {
+    PathBuf::from(env!("CARGO_BIN_EXE_rata-monitor"))
+}
+
+/// Read `work/monitor/<category>_*.csv` as lines (header first).
+fn monitor_lines(env: &Env, category: &str) -> Vec<String> {
+    let dir = env.root().join("work/monitor");
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .map(|d| d.map(|e| e.unwrap().path()).collect())
+        .unwrap_or_default();
+    files.retain(|p| {
+        p.file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with(&format!("{category}_"))
+    });
+    files.sort();
+    files
+        .last()
+        .map(|p| {
+            std::fs::read_to_string(p)
+                .unwrap()
+                .lines()
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Wait until `work/monitor/service_*.csv` has at least `n` data rows.
+fn wait_for_rows(env: &Env, n: usize) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while monitor_lines(env, "service").len() < n + 1 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "rata-monitor wrote no samples; log: {:?}",
+            std::fs::read_dir(env.root().join("work/log"))
+                .unwrap()
+                .map(|e| std::fs::read_to_string(e.unwrap().path()).unwrap())
+                .collect::<Vec<_>>()
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+impl Env {
+    /// A config with RATA_MONITOR (5 second samples) and two test services.
+    ///
+    /// The monitor runs from a copy in `$RATA/bin`, so its command line is
+    /// unique to this test.
+    fn monitored(&self, system: bool) {
+        let bin = self.root().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let exe = bin.join(format!("rata-monitor{}", std::env::consts::EXE_SUFFIX));
+        std::fs::copy(rata_monitor(), &exe).unwrap();
+        self.write_config(&format!(
+            "[[service]]\nname = \"RATA_MONITOR\"\nstart = ['{}']\nexplicit_stop = true\n\n\
+             [[service]]\nname = \"WEB\"\nstart = {}\n\n\
+             [[service]]\nname = \"IDLE\"\nstart = {}\nexplicit_start = true\n",
+            exe.display(),
+            self.svc("WEB", &[]),
+            self.svc("IDLE", &[]),
+        ));
+        std::fs::write(
+            self.root().join("work/cfg/monitor.toml"),
+            format!("interval = 5\nsystem = {system}\n"),
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn monitor_records_samples() {
+    let env = Env::new("monitor");
+    env.monitored(true);
+    env.rata(&["check"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains(
+            "monitor.toml OK (every 5s, host stats on)",
+        ));
+    env.rata(&["start"]).assert().code(0);
+    wait_for_rows(&env, 3);
+
+    let service = monitor_lines(&env, "service");
+    assert_eq!(
+        service[0],
+        "time,service,state,pid,procs,cpu_pct,rss,disk_read,disk_written,uptime_s"
+    );
+    let rows: Vec<Vec<&str>> = service[1..]
+        .iter()
+        .map(|l| l.split(',').collect())
+        .collect();
+    let row = |name: &str| rows.iter().find(|r| r[1] == name).unwrap().clone();
+    assert_eq!(row("RATA_MONITOR")[2], "running");
+    assert_eq!(row("WEB")[2], "running");
+    assert_eq!(row("WEB")[3], env.pids("WEB")[0].to_string());
+    assert!(row("WEB")[6].parse::<u64>().unwrap() > 0, "rss");
+    assert_eq!(row("IDLE")[2..], ["stopped", "", "", "", "", "", "", ""]);
+    // Times are in the rata datetime format.
+    let time: rata::datetime::RataTime = row("WEB")[0].parse().unwrap();
+    let age = jiff::Timestamp::now().duration_since(time.timestamp);
+    assert!(age.as_secs() < 30, "{age:?}");
+
+    let system = monitor_lines(&env, "system");
+    assert!(system[0].starts_with("time,cpu_pct,load1,load5,load15,cores,mem_total"));
+    assert!(system.len() >= 2);
+
+    // A graceful stop: the monitor logs that it is stopping.
+    env.rata(&["stop", "RATA_MONITOR"]).assert().code(0).stdout(
+        predicate::str::contains("RATA_MONITOR  stopped")
+            .and(predicate::str::contains("forced").not()),
+    );
+    let log = std::fs::read_dir(env.root().join("work/log"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.to_string_lossy().contains("RATA_MONITOR_"))
+        .unwrap();
+    let log = std::fs::read_to_string(log).unwrap();
+    assert!(log.contains("rata-monitor stopping"), "{log}");
+    env.rata(&["stop"]).assert().code(0);
+}
+
+#[test]
+fn monitor_without_host_stats() {
+    let env = Env::new("monsvc");
+    env.monitored(false);
+    env.rata(&["start", "RATA_MONITOR"]).assert().code(0);
+    wait_for_rows(&env, 3);
+    for category in ["system", "disk", "net"] {
+        assert!(monitor_lines(&env, category).is_empty(), "{category}");
+    }
+    env.rata(&["stop", "--all"]).assert().code(0);
+}
+
+#[test]
+fn monitor_rejects_arguments_and_bad_config() {
+    let env = Env::new("monargs");
+    let mut c = Command::new(rata_monitor());
+    c.env("RATA", env.root()).arg("--bogus");
+    c.assert()
+        .code(2)
+        .stderr(predicate::str::contains("unexpected argument"));
+    let mut c = Command::new(rata_monitor());
+    c.arg("--version");
+    c.assert()
+        .code(0)
+        .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
+    std::fs::write(env.root().join("work/cfg/monitor.toml"), "interval = 1\n").unwrap();
+    let mut c = Command::new(rata_monitor());
+    c.env("RATA", env.root()).timeout(Duration::from_secs(10));
+    c.assert().code(2).stderr(predicate::str::contains(
+        "interval must be between 5 and 3600",
+    ));
+    env.write_config("");
+    env.rata(&["check"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("monitor.toml:1:12"));
 }

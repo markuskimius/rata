@@ -23,12 +23,18 @@ include = [
 [features]
 default = ["cli"]
 service = ["dep:sysinfo", "dep:libc", "dep:windows-sys"]
-cli = ["service", "dep:clap", "dep:serde_json"]
+monitor = ["service", "sysinfo/disk", "sysinfo/network"]
+cli = ["service", "monitor", "dep:clap", "dep:serde_json"]
 
 [[bin]]
 name = "rata"
 path = "src/main.rs"
 required-features = ["cli"]
+
+[[bin]]
+name = "rata-monitor"
+path = "src/bin/rata-monitor.rs"
+required-features = ["monitor"]
 
 [[example]]
 name = "testsvc"

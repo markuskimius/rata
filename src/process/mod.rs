@@ -75,13 +75,22 @@ pub struct ProcessTable {
 pub fn scan() -> ProcessTable {
     let mut sys = System::new();
     refresh(&mut sys, ProcessesToUpdate::All);
+    table_from_system(&sys, false)
+}
+
+/// Build a table from an already refreshed [`System`]: the processes owned
+/// by the current user, without threads or zombies. rata's own process is
+/// left out unless `include_self` is set.
+///
+/// The `System` must have been refreshed with command lines and users.
+pub fn table_from_system(sys: &System, include_self: bool) -> ProcessTable {
     let me = Pid::from_u32(std::process::id());
     let my_user = sys.process(me).and_then(|p| p.user_id()).cloned();
     let mut procs: Vec<ProcessInfo> = sys
         .processes()
         .iter()
         .filter(|(pid, p)| {
-            **pid != me
+            (include_self || **pid != me)
                 && p.thread_kind().is_none()
                 && p.status() != ProcessStatus::Zombie
                 && my_user.as_ref().is_none_or(|u| p.user_id() == Some(u))

@@ -9,7 +9,7 @@
 //!   never signaled. The helper keeps rata's own console untouched.
 //! * Forced stop: `TerminateProcess` on the process and its descendants.
 
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, Write};
 use std::mem::ManuallyDrop;
 use std::os::windows::io::FromRawHandle;
@@ -84,6 +84,8 @@ pub(super) fn spawn_detached(cmd: &CommandLine, rata: &Rata, log: File) -> io::R
     let path = Path::new(program);
     let exe = if path.is_relative() && (program.contains('\\') || program.contains('/')) {
         rata.root().join(path)
+    } else if let Some(copy) = bundled_copy(program, rata) {
+        copy
     } else {
         path.to_path_buf()
     };
@@ -96,6 +98,56 @@ pub(super) fn spawn_detached(cmd: &CommandLine, rata: &Rata, log: File) -> io::R
         .stderr(log)
         .creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW)
         .spawn()
+}
+
+/// Run programs installed with rata from a copy, so upgrades are not blocked.
+///
+/// Windows does not let a running program's file be replaced, so a service
+/// running `rata-monitor.exe` from the install directory would make every
+/// upgrade fail. When a service's program is a bare name (no directory) and
+/// a program of that name is installed next to `rata.exe`, rata copies it to
+/// `$RATA\work\run\bin` (when the copy is missing or differs in size or
+/// modification time) and runs the copy. A bare psline matches any
+/// directory, so detection and stopping are unaffected. Returns `None`, and
+/// the program runs as written, if there is nothing to copy or copying fails.
+fn bundled_copy(program: &str, rata: &Rata) -> Option<PathBuf> {
+    if program.contains(['\\', '/', ':']) {
+        return None;
+    }
+    let has_exe = program
+        .get(program.len().saturating_sub(4)..)
+        .is_some_and(|ext| ext.eq_ignore_ascii_case(".exe"));
+    let file = if has_exe {
+        program.to_string()
+    } else {
+        format!("{program}.exe")
+    };
+    let installed = std::env::current_exe().ok()?.parent()?.join(&file);
+    if !installed.is_file() {
+        return None;
+    }
+    let dir = rata.run_dir().join("bin");
+    fs::create_dir_all(&dir).ok()?;
+    let copy = dir.join(&file);
+    if !same_file(&installed, &copy) {
+        // Copy under a temporary name first, so a failed copy never leaves
+        // a broken program behind.
+        let tmp = dir.join(format!("{file}.tmp"));
+        if fs::copy(&installed, &tmp).is_err() || fs::rename(&tmp, &copy).is_err() {
+            let _ = fs::remove_file(&tmp);
+            return None;
+        }
+    }
+    Some(copy)
+}
+
+/// Whether `a` and `b` have the same size and modification time.
+/// (`fs::copy` keeps the modification time on Windows.)
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (fs::metadata(a), fs::metadata(b)) {
+        (Ok(a), Ok(b)) => a.len() == b.len() && a.modified().ok() == b.modified().ok(),
+        _ => false,
+    }
 }
 
 pub(super) fn terminate(proc: &ProcessInfo, table: &ProcessTable) -> io::Result<Graceful> {
@@ -215,5 +267,43 @@ pub fn ctrl_break_helper_main(pid: u32, allowed: &[u32]) -> i32 {
         } else {
             HELPER_SENT
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bundled_programs_run_from_a_copy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rata = Rata::from_path(tmp.path()).unwrap();
+        // The test binary stands in for a program installed next to rata.
+        let me = std::env::current_exe().unwrap();
+        let stem = me.file_stem().unwrap().to_str().unwrap().to_string();
+
+        let copy = bundled_copy(&stem, &rata).expect("copied");
+        assert_eq!(
+            copy,
+            rata.run_dir().join("bin").join(me.file_name().unwrap())
+        );
+        assert!(same_file(&me, &copy));
+        // Up to date: used as-is. The .exe suffix is optional, in any case.
+        let upper = format!("{stem}.EXE");
+        assert_eq!(
+            bundled_copy(&upper, &rata).unwrap().file_name(),
+            copy.file_name()
+        );
+        assert!(
+            !rata
+                .run_dir()
+                .join("bin")
+                .join(format!("{}.tmp", me.file_name().unwrap().to_str().unwrap()))
+                .exists()
+        );
+
+        // Paths and unknown programs are left alone.
+        assert!(bundled_copy(&me.display().to_string(), &rata).is_none());
+        assert!(bundled_copy("no-such-program-here", &rata).is_none());
     }
 }

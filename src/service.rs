@@ -451,6 +451,16 @@ pub enum State {
     Stopped,
 }
 
+impl State {
+    /// `running` or `stopped`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            State::Running => "running",
+            State::Stopped => "stopped",
+        }
+    }
+}
+
 /// The status of one service.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct StatusReport {
@@ -493,6 +503,17 @@ pub fn status(rata: &Rata, services: &[&Service]) -> Vec<StatusReport> {
                 near_misses: table.near_misses(&m).into_iter().cloned().collect(),
             }
         })
+        .collect()
+}
+
+/// The log files that may still be written to: the newest log of each
+/// service that is running. Every other file in `work/log` is closed.
+pub fn current_logs(rata: &Rata, config: &Config) -> Vec<PathBuf> {
+    let services: Vec<&Service> = config.services.iter().collect();
+    status(rata, &services)
+        .into_iter()
+        .filter(|r| r.state == State::Running)
+        .filter_map(|r| r.log)
         .collect()
 }
 
