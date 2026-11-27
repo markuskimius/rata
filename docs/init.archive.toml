@@ -1,0 +1,71 @@
+# rata archive configuration
+#
+# $RATA/work/cfg/archive.toml tells `rata archive` what to do with old
+# files. Run it by hand or from cron, for example once a day:
+#
+#   0 3 * * *  RATA=/opt/rata /usr/local/bin/rata archive -q
+#
+# Run `rata check` to validate this file, and `rata archive --dry-run` to
+# see what would happen.
+version = 1
+
+# Each [[rule]] handles the files in one directory (not its subdirectories):
+#
+#   path            The directory. Relative paths are inside $RATA; ${RATA}
+#                   is replaced. work/cfg and work/run are not allowed.
+#   match           File name patterns (see below). A pattern also matches
+#                   the name with .gz added, so "*.log" covers "x.log.gz".
+#   exclude         Optional. File name patterns to leave out, even when
+#                   match matches them (also with .gz added).
+#   compress_after  Optional. gzip files this old, in place (x.log becomes
+#                   x.log.gz).
+#   delete_after    Delete files this old from path, compressed or not.
+#   move_after      Move files this old to move_to, a permanent archive
+#   move_to         (compressed first, if the rule sets compress_after).
+#                   rata never changes or deletes anything there.
+#                   move_to may use {yyyy}, {mm}, and {dd} for the date the
+#                   file was last modified, like
+#                   "${RATA}/archive/log/{yyyy}/{mm}".
+#
+# A rule sets move_after or delete_after, not both. Ages count from when the
+# file was last modified: "12h" (hours), "3d" (calendar days: a file last
+# modified on the 24th is 3d old on the 27th), "2w" (weeks), "6mo"
+# (calendar months: Jan 31 is 1mo old on Feb 28), or "1y" (years). They can
+# also be spelled out, like "90 days" or "1 year". There is no "m": use "mo".
+#
+# In patterns, * matches any run of characters, ? any one character,
+# [abc] or [a-z] one character from a set, [!abc] one not in it, and
+# {log,txt} any of the alternatives. \ makes the next character literal.
+# Case matters.
+#
+# Each file is handled by the first rule that matches it. The current log
+# of a running service and today's monitor files are never touched.
+
+# Service logs.
+[[rule]]
+path           = "work/log"
+match          = ["*.log"]
+compress_after = "3d"
+delete_after   = "90d"
+
+# Stats recorded by rata-monitor.
+[[rule]]
+path           = "work/monitor"
+match          = ["*.csv"]
+compress_after = "3d"
+delete_after   = "90d"
+
+# To keep logs instead of deleting them, replace delete_after with:
+#
+# move_after = "30d"
+# move_to    = "${RATA}/archive/log/{yyyy}/{mm}"
+#
+# Or, to move some files without compressing them, leave out
+# compress_after. Put the rule above the work/log rule, which would
+# otherwise take the files first:
+#
+# [[rule]]
+# path       = "work/log"
+# match      = ["WEB_API_*.log"]
+# move_after = "1mo"
+# move_to    = "/mnt/archive/rata/{yyyy}"

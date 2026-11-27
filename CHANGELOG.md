@@ -6,6 +6,34 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+To add archiving to an existing install, copy `docs/init.archive.toml` to
+`$RATA/work/cfg/archive.toml`.
+
+### Added
+
+- `rata archive` compresses (gzip), moves, or deletes old files, following
+  rules in the new `$RATA/work/cfg/archive.toml`. Each rule names a
+  directory and file name patterns, with `compress_after`, and either
+  `delete_after` or `move_after` with `move_to`. `move_to` takes `{yyyy}`,
+  `{mm}`, and `{dd}` from the file's modified date. Leaving out
+  `compress_after` moves or deletes files as they are. `exclude` leaves out
+  files that `match` would take. Patterns support `*`, `?`, `[a-z]`,
+  `[!a-z]`, `{a,b}`, and `\` escapes. Ages (`12h`, `3d`, `2w`, `6mo`, `1y`,
+  or spelled out, like `90 days`) count from each file's last-modified time,
+  which is kept; all but hours go by the calendar. Every action
+  applies only to files in the rule's directory, and rata never touches
+  what it moved. The current log of a running service and today's monitor
+  files are never touched. `-n`/`--dry-run` shows what would happen. Runs
+  are safe to interrupt and never overlap (`work/run/archive.lock`), so
+  `rata archive -q` can run from cron. Exit code 1 means a file could not be
+  handled.
+- `rata init` writes an `archive.toml` that compresses logs and monitor
+  files after 3 days and deletes them after 90.
+- `rata check` validates `archive.toml` and lists its rules.
+- Library: the `archive` feature and module (included in `cli`), with
+  `Lock::acquire_named`, `Rata::archive_config_path`,
+  `init::ARCHIVE_TEMPLATE`, and `Error::ArchiveBusy`.
+
 ## [0.3.0] - 2026-11-27
 
 ### Added

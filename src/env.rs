@@ -5,6 +5,7 @@
 //! └── work/
 //!     ├── cfg/service.toml   service configuration
 //!     ├── cfg/monitor.toml   monitor configuration (optional)
+//!     ├── cfg/archive.toml   archive rules for `rata archive` (optional)
 //!     ├── log/               one log file per service start
 //!     ├── monitor/           stats recorded by rata-monitor
 //!     └── run/               lock file
@@ -103,6 +104,11 @@ impl Rata {
     /// `$RATA/work/cfg/monitor.toml`
     pub fn monitor_config_path(&self) -> PathBuf {
         self.cfg_dir().join("monitor.toml")
+    }
+
+    /// `$RATA/work/cfg/archive.toml`
+    pub fn archive_config_path(&self) -> PathBuf {
+        self.cfg_dir().join("archive.toml")
     }
 
     /// Create `work/log` and `work/run` if they are missing.

@@ -17,7 +17,8 @@
 //! | *(none)* | | [`env`](mod@env), [`config`], [`cmdline`], [`logfile`], [`datetime`], [`init`], [`Error`] |
 //! | `service` | | `process`, `service`, `lock`: finding, starting, and stopping processes |
 //! | `monitor` | | [`monitor`](mod@monitor) and the `rata-monitor` binary (implies `service`) |
-//! | `cli` | yes | `cli` and the `rata` binary (implies `service` and `monitor`) |
+//! | `archive` | | [`archive`](mod@archive): compressing, moving, and deleting old files (implies `monitor`) |
+//! | `cli` | yes | `cli` and the `rata` binary (implies `service`, `monitor`, and `archive`) |
 //!
 //! Library users that do not need the CLI can depend on
 //! `rata = { version = "0.3", default-features = false, features = ["service"] }`.
@@ -32,6 +33,8 @@ pub mod error;
 pub mod init;
 pub mod logfile;
 
+#[cfg(feature = "archive")]
+pub mod archive;
 #[cfg(feature = "service")]
 pub mod lock;
 #[cfg(feature = "monitor")]

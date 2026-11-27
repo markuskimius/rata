@@ -122,6 +122,10 @@ pub enum Error {
     #[error("another rata command is running (lock: {})", .0.display())]
     LockBusy(PathBuf),
 
+    /// Another `rata archive` holds the archive lock.
+    #[error("another rata archive is running (lock: {})", .0.display())]
+    ArchiveBusy(PathBuf),
+
     /// Any other I/O failure, with a description of what rata was doing.
     #[error("{context}: {source}")]
     Io {

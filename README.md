@@ -5,7 +5,8 @@ Start, stop, and monitor long-running services.
 `rata` is a command-line tool that manages the services listed in a TOML
 config file, and a Rust library for programs that work with rata installs.
 Its built-in monitor records host and per-service stats as CSV files you can
-open in a spreadsheet. It runs on Linux, macOS, and Windows, on x86_64 and
+open in a spreadsheet, and `rata archive` compresses, archives, or deletes
+old logs and stats. It runs on Linux, macOS, and Windows, on x86_64 and
 ARM64.
 
 ```console
@@ -67,7 +68,8 @@ cargo install rata
    ```
 
 2. Set it up. `rata init` creates the directory layout, a `service.toml`
-   that runs the rata monitor, and a commented `monitor.toml`:
+   that runs the rata monitor, a commented `monitor.toml`, and an
+   `archive.toml` (see [Archiving](#archiving)):
 
    ```sh
    rata init                        # or: rata init /opt/rata
@@ -100,6 +102,7 @@ cargo install rata
 | `rata restart [NAME]... [--all] [-t SECS]` | Stop, then start services |
 | `rata status [NAME]... [-v] [--json]` | Show whether each service is running |
 | `rata mon [NAME]... [--json] [-w]` | Show the latest host and service stats from the monitor |
+| `rata archive [-n]` | Compress, move, or delete old files, as `archive.toml` says |
 | `rata check` | Validate the config and show what each service matches |
 | `rata init [DIR]` | Set up a new install in an empty directory |
 | `rata help [COMMAND]` | Show help (also `-h`, `--help`) |
@@ -116,8 +119,8 @@ shows the version.
 | Code | Meaning |
 |---|---|
 | 0 | Success |
-| 1 | One or more services failed to start or stop |
-| 2 | Config or environment error (e.g. `RATA` not set, invalid `service.toml`) |
+| 1 | One or more services failed to start or stop. `archive`: one or more files could not be compressed, moved, or deleted |
+| 2 | Config or environment error (e.g. `RATA` not set, invalid `service.toml`), or another `rata archive` is running |
 | 3 | `status`: one or more services are not running. `mon`: the data is out of date, or a service shown is not running |
 
 ## Configuration
@@ -376,6 +379,125 @@ existing install, add the `RATA_MONITOR` service shown above at the top of
 optional; copy [`docs/monitor.example.toml`](docs/monitor.example.toml) to
 change the defaults.
 
+## Archiving
+
+`rata archive` applies the rules in `$RATA/work/cfg/archive.toml` to old
+files. It never asks questions, so it can run from cron (or the Windows Task
+Scheduler), for example once a day:
+
+```sh
+0 3 * * *  RATA=/opt/rata /usr/local/bin/rata archive -q
+```
+
+`rata init` writes this `archive.toml`, which compresses service logs and
+monitor files after 3 days and deletes them after 90:
+
+```toml
+version = 1
+
+[[rule]]
+path           = "work/log"
+match          = ["*.log"]
+compress_after = "3d"
+delete_after   = "90d"
+
+[[rule]]
+path           = "work/monitor"
+match          = ["*.csv"]
+compress_after = "3d"
+delete_after   = "90d"
+```
+
+```console
+$ rata archive
+compressed  work/log/WEB_API_20261120_101500.0.log -> WEB_API_20261120_101500.0.log.gz
+deleted     work/log/WEB_API_20260801_090000.0.log.gz
+compressed  work/monitor/net_20261123.csv -> net_20261123.csv.gz
+2 compressed, 1 deleted
+```
+
+| Setting | Meaning |
+|---|---|
+| `path` | The directory (not its subdirectories). Relative paths are inside `$RATA`; `${RATA}` is replaced. `work/cfg` and `work/run` are not allowed. |
+| `match` | File name patterns (see below). A pattern also matches the name with `.gz` added, so `"*.log"` covers `x.log.gz`. |
+| `exclude` | Optional. File name patterns to leave out even when `match` matches them (also with `.gz` added). |
+| `compress_after` | Optional. gzip files this old, in place: `x.log` becomes `x.log.gz`. |
+| `delete_after` | Delete files this old from `path`, compressed or not. |
+| `move_after`, `move_to` | Move files this old to `move_to`, a permanent archive. With `compress_after`, files are compressed first; without it, they are moved as they are. |
+
+Every action applies only to files in the rule's `path`. A file leaves
+`path` one way, so a rule sets `move_after` or `delete_after`, not both.
+rata never changes or deletes anything it moved; manage the archive's
+storage separately. `move_to` may use `{yyyy}`, `{mm}`, and `{dd}`, filled
+from the date the file was last modified:
+
+```toml
+[[rule]]
+path           = "work/log"
+match          = ["*.log"]
+compress_after = "3d"
+move_after     = "30d"
+move_to        = "${RATA}/archive/log/{yyyy}/{mm}"
+```
+
+To move files without compressing them, leave out `compress_after`. Here
+`exclude` keeps the monitor's own log out:
+
+```toml
+[[rule]]
+path       = "work/log"
+match      = ["*.log"]
+exclude    = ["RATA_MONITOR_*"]
+move_after = "1mo"
+move_to    = "/mnt/archive/rata/{yyyy}"
+```
+
+Ages count from when the file was last modified, which compressing and
+moving keep. All but hours go by the calendar, in local time:
+
+| Age | Meaning |
+|---|---|
+| `12h`, `12 hours` | 12 hours since the file was last modified |
+| `3d`, `3 days` | 3 calendar days: a file last modified on the 24th is `3d` old on the 27th |
+| `2w`, `2 weeks` | 14 calendar days |
+| `6mo`, `6 months` | 6 calendar months: Mar 15 is `1mo` old on Apr 15, and Jan 31 on Feb 28 |
+| `1y`, `1 year` | 1 calendar year |
+
+There is no `m`, which could mean minutes or months: write `mo`. Ages that
+can never come in order, like `compress_after = "2mo"` with
+`delete_after = "40d"`, are config errors.
+
+Patterns match the whole file name. Case matters.
+
+| Pattern | Matches |
+|---|---|
+| `*` | any run of characters, including none |
+| `?` | any one character |
+| `[abc]`, `[a-z]` | one character from the set or range |
+| `[!abc]`, `[^a-z]` | one character not in it |
+| `{log,txt}` | any of the alternatives, which may hold patterns |
+| `\*` | a literal `*` (or any other character after `\`) |
+
+Each file is handled by the first rule that matches it. The current log of a
+running service and today's monitor files are never touched, however old.
+
+`rata archive --dry-run` (`-n`) shows what would happen without changing
+anything, and `rata check` validates `archive.toml`. Without `archive.toml`,
+`rata archive` does nothing.
+
+Every step is safe to interrupt, and the next run finishes the job.
+Compressing writes `x.log.gz.rata-tmp`, renames it to `x.log.gz`, then
+removes `x.log`. A move to another file system copies to a `.rata-tmp` file
+first. A move never replaces a file: if `move_to` already has a different
+file with that name, the move fails and the file stays where it is. Two
+runs never overlap. A second run exits with code 2 while the first holds
+`work/run/archive.lock`. `start` and `stop` use a different lock, so
+archiving never holds them up.
+
+To add archiving to an install set up before rata 0.4, copy
+[`docs/init.archive.toml`](docs/init.archive.toml) to
+`$RATA/work/cfg/archive.toml`.
+
 ## Directory layout
 
 ```text
@@ -383,9 +505,10 @@ $RATA/
 └── work/
     ├── cfg/service.toml   service configuration
     ├── cfg/monitor.toml   monitor configuration (optional)
+    ├── cfg/archive.toml   rules for rata archive (optional)
     ├── log/               one log file per start
     ├── monitor/           stats recorded by rata-monitor
-    └── run/               lock file; on Windows, bin/ with program copies
+    └── run/               lock files; on Windows, bin/ with program copies
 ```
 
 `rata init` creates all of it. rata creates `log/` and `run/` if they are
@@ -403,7 +526,8 @@ rata = { version = "0.3", default-features = false, features = ["service"] }
 | *(none)* | `env`, `config`, `cmdline`, `logfile`, `datetime`, `init`: paths, config parsing, command matching, the rata datetime format |
 | `service` | `process`, `service`, `lock`: finding, starting, and stopping processes |
 | `monitor` | `monitor` and the `rata-monitor` binary: sampling, the CSV files, `monitor.toml` (implies `service`) |
-| `cli` *(default)* | The `rata` command-line interface (implies `service` and `monitor`) |
+| `archive` | `archive`: `archive.toml` and compressing, moving, and deleting old files (implies `monitor`) |
+| `cli` *(default)* | The `rata` command-line interface (implies `service`, `monitor`, and `archive`) |
 
 ```rust,no_run
 use rata::{Config, Rata};
@@ -422,8 +546,8 @@ fn main() -> rata::Result<()> {
 }
 ```
 
-For a tool that cleans up old files, `rata::monitor::live_files` and
-`rata::service::current_logs` list the files that may still be written to.
+`rata::archive::protected_files` lists the files that may still be written
+to (from `rata::monitor::live_files` and `rata::service::current_logs`).
 
 The API may change between minor versions before 1.0.
 

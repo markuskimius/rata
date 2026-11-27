@@ -6,7 +6,7 @@
 //! | Code | Meaning |
 //! |---|---|
 //! | 0 | Success |
-//! | 1 | One or more services failed to start or stop |
+//! | 1 | One or more services failed to start or stop, or `archive` could not handle a file |
 //! | 2 | Config or environment error |
 //! | 3 | (`status` only) One or more services are not running |
 
@@ -28,7 +28,8 @@ use output::Printer;
 
 /// Exit code: success.
 pub const EXIT_OK: u8 = 0;
-/// Exit code: a service failed to start or stop.
+/// Exit code: a service failed to start or stop, or `archive` could not
+/// handle a file.
 pub const EXIT_FAILED: u8 = 1;
 /// Exit code: config or environment error.
 pub const EXIT_ERROR: u8 = 2;
@@ -67,14 +68,21 @@ Monitoring:
   host and per-service stats every 30 seconds as CSV files in
   $RATA/work/monitor. 'rata mon' shows the latest sample.
 
+Archiving:
+  'rata archive' compresses, moves, or deletes old files as
+  $RATA/work/cfg/archive.toml says. 'rata init' sets it to compress logs and
+  monitor files after 3 days and delete them after 90. Run it from cron.
+
 Environment:
   RATA  Required. Absolute path to the root directory of this rata install.
-        Config is read from $RATA/work/cfg/service.toml and monitor.toml
+        Config is read from $RATA/work/cfg/service.toml, monitor.toml,
+        and archive.toml
         Logs are written to $RATA/work/log/<name>_YYYYMMDD_HHMMSS.n.log
 
 Exit codes:
   0  Success
   1  One or more services failed to start or stop
+     archive: one or more files could not be compressed, moved, or deleted
   2  Config or environment error (e.g. RATA not set, invalid service.toml)
   3  status: one or more services are not running
      mon: the data is out of date, or a service shown is not running
@@ -112,14 +120,32 @@ host stats. The data is out of date when it is older than two intervals.
 Exit status is 0 if the data is current and every service shown is running,
 3 if not.";
 
+const ARCHIVE_AFTER_HELP: &str = "\
+Applies the rules in $RATA/work/cfg/archive.toml. Each rule names a
+directory and file name patterns, and can compress files with gzip after
+one age, then either delete them or move them to a permanent archive after
+another. Ages count from each file's last-modified time. Every action
+applies only to files in the rule's directory; rata never changes or
+deletes anything it moved. The current log of a running service and today's
+monitor files are never touched.
+
+archive never asks questions, so it can run from cron, for example:
+
+  0 3 * * *  RATA=/opt/rata /usr/local/bin/rata archive -q
+
+An interrupted run is finished by the next one. Without archive.toml,
+nothing is done. Exit status is 0 if every file was handled, 1 if any
+failed, 2 for a config error or if another archive is running.";
+
 const INIT_AFTER_HELP: &str = "\
 Creates the work/ tree, a service.toml that runs the rata monitor
-(RATA_MONITOR), and a commented monitor.toml. The directory must not exist
+(RATA_MONITOR), a commented monitor.toml, and an archive.toml that compresses
+old logs and monitor files after 3 days and deletes them after 90. The directory must not exist
 or must be empty; hidden files (names starting with a dot) do not count.
 rata init never changes an existing install.";
 
 const CHECK_AFTER_HELP: &str = "\
-Validates $RATA/work/cfg/service.toml and monitor.toml, then shows each
+Validates $RATA/work/cfg/service.toml, monitor.toml, and archive.toml, then shows each
 service's start command and psline as rata splits them, the processes
 matching right now, and near misses: processes running the same program with
 different arguments. Exit status is 0 if the config is valid, 2 if not.";
@@ -235,6 +261,14 @@ enum Command {
         /// Redraw every second until interrupted (Ctrl-C)
         #[arg(short, long)]
         watch: bool,
+    },
+
+    /// Compress, move, or delete old files, as archive.toml says
+    #[command(help_template = SUB_TEMPLATE, after_help = ARCHIVE_AFTER_HELP)]
+    Archive {
+        /// Show what would be done, without changing anything
+        #[arg(short = 'n', long)]
+        dry_run: bool,
     },
 
     /// Set up a new rata install in an empty directory
@@ -418,6 +452,30 @@ fn dispatch(cli: Cli) -> Result<u8, Error> {
             watch,
             quiet,
         }),
+        Command::Archive { dry_run } => {
+            let (rata, config) = load()?;
+            let rules = crate::archive::ArchiveConfig::load(&rata)?;
+            let p = Printer::new(&rata, &[], quiet);
+            if !rules.exists {
+                p.note(&format!(
+                    "{} not found; nothing to archive",
+                    rata.display_path(&rules.path)
+                ));
+                return Ok(EXIT_OK);
+            }
+            let _lock = if dry_run {
+                None
+            } else {
+                Some(crate::archive::lock(&rata)?)
+            };
+            let protected = crate::archive::protected_files(&rata, &config);
+            let now = jiff::ZonedDateTime::now();
+            let report = crate::archive::run(&rata, &rules, &protected, &now, dry_run, |e| {
+                p.archive_entry(e, dry_run)
+            });
+            p.archive_summary(&report, dry_run);
+            Ok(if report.ok() { EXIT_OK } else { EXIT_FAILED })
+        }
         Command::Init { dir } => {
             let root = crate::init::target_dir(dir)?;
             let report = crate::init::init(&root)?;
@@ -428,9 +486,11 @@ fn dispatch(cli: Cli) -> Result<u8, Error> {
             let (rata, config) = load()?;
             let all: Vec<_> = config.services.iter().collect();
             let monitor = crate::monitor::MonitorConfig::load(&rata)?;
+            let archive = crate::archive::ArchiveConfig::load(&rata)?;
             let p = Printer::new(&rata, &all, quiet);
             p.check(&config, &service::check(&rata, &config));
             p.check_monitor(&monitor);
+            p.check_archive(&archive);
             Ok(EXIT_OK)
         }
     }
