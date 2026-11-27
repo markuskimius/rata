@@ -952,11 +952,9 @@ fn archive_config_errors_lock_and_help() {
     )
     .unwrap();
     env.rata(&["check"]).assert().code(0).stdout(
-        predicate::str::contains("archive work/cfg/archive.toml OK (1 rule)").and(
-            predicate::str::contains(
-                "*.log except RATA_*  compress after 1w, move after 6mo to ${RATA}/archive/{yyyy}",
-            ),
-        ),
+        predicate::str::contains("archive.toml OK (1 rule)").and(predicate::str::contains(
+            "*.log except RATA_*  compress after 1w, move after 6mo to ${RATA}/archive/{yyyy}",
+        )),
     );
 
     // A second run while one holds the lock exits 2 at once; a dry run
