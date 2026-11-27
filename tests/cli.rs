@@ -683,6 +683,8 @@ fn monitor_records_samples() {
     assert_eq!(row("WEB")[2], "running");
     assert_eq!(row("WEB")[3], env.pids("WEB")[0].to_string());
     assert!(row("WEB")[6].parse::<u64>().unwrap() > 0, "rss");
+    // The first sample covers less than an interval: no I/O amounts.
+    assert_eq!(row("WEB")[7..9], ["", ""]);
     assert_eq!(row("IDLE")[2..], ["stopped", "", "", "", "", "", "", ""]);
     // Times are in the rata datetime format.
     let time: rata::datetime::RataTime = row("WEB")[0].parse().unwrap();

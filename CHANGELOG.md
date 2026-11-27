@@ -6,6 +6,16 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-26
+
+### Changed
+
+- `rata-monitor` takes its first sample at the first clock boundary at least
+  5 seconds after it starts (within 5 to 35 seconds with the default
+  30-second interval), instead of waiting a whole interval (30 to 60
+  seconds). That first sample covers less than an interval, so its interval
+  amounts (disk and network I/O, and per-service disk I/O) are left empty.
+
 ## [0.2.0] - 2026-11-26
 
 To add the monitor to an install set up with 0.1, add the `RATA_MONITOR`
@@ -74,7 +84,8 @@ service to the top of `service.toml` (see "Upgrading an install from rata
 - Prebuilt binaries for Linux, macOS, and Windows (x86_64 and ARM64) on
   GitHub Releases, with shell and PowerShell installers.
 
-[Unreleased]: https://github.com/markuskimius/rata/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/markuskimius/rata/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/markuskimius/rata/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/markuskimius/rata/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/markuskimius/rata/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/markuskimius/rata/releases/tag/v0.1.0

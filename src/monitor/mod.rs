@@ -36,6 +36,9 @@ use crate::config::Config;
 use crate::env::Rata;
 use crate::error::{Error, Result};
 
+/// The least time between startup and the first sample.
+pub const FIRST_SAMPLE_DELAY: Duration = Duration::from_secs(5);
+
 /// The name of the monitor's program, as written in `service.toml`.
 pub const PROGRAM: &str = "rata-monitor";
 
@@ -78,11 +81,11 @@ pub fn run(rata: &Rata) -> Result<()> {
     let mut services = Services::new();
     services.reload(rata);
     let mut collector = collect::Collector::new();
-    // The first sample must cover at least a whole interval: take it at the
-    // first boundary at or after one interval from now.
-    let primed = SystemTime::now();
+    // The first sample comes at the first boundary at least FIRST_SAMPLE_DELAY
+    // after startup, so its CPU figures are measured over a few seconds.
+    // Its interval amounts are left empty (see Collector::sample).
     let mut next = next_boundary(
-        primed + cfg.interval - Duration::from_nanos(1),
+        SystemTime::now() + FIRST_SAMPLE_DELAY - Duration::from_nanos(1),
         cfg.interval,
     );
     let mut last_error: Option<String> = None;
