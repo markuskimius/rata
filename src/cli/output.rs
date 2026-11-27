@@ -5,7 +5,7 @@
 
 use std::io::{self, Write};
 
-use crate::config::{Config, Service};
+use crate::config::{Action, Config, Selection, Service, Skipped};
 use crate::env::Rata;
 use crate::process::ProcessInfo;
 use crate::service::{
@@ -51,6 +51,37 @@ impl<'a> Printer<'a> {
             rata,
             quiet,
             name_width,
+        }
+    }
+
+    /// A printer sized for every service in `sel`, including skipped ones.
+    pub(super) fn for_selection(rata: &'a Rata, sel: &Selection<'_>, quiet: bool) -> Self {
+        let all: Vec<&Service> = sel
+            .services
+            .iter()
+            .copied()
+            .chain(sel.skipped.iter().map(|s| s.service))
+            .collect();
+        Self::new(rata, &all, quiet)
+    }
+
+    /// One line per service a bare command skipped.
+    pub(super) fn skipped(&self, action: Action, skipped: &[Skipped<'_>]) {
+        for s in skipped {
+            let verb = action.name();
+            out!(
+                self,
+                "{}",
+                self.line(
+                    &s.service.name,
+                    "skipped",
+                    &format!(
+                        "{}; {verb} it with: rata {verb} {}",
+                        s.reason.field(),
+                        s.service.name
+                    )
+                )
+            );
         }
     }
 
@@ -259,6 +290,17 @@ impl<'a> Printer<'a> {
             match &r.psline {
                 Some(ps) => out!(self, "  psline     {ps:?}"),
                 None => out!(self, "  psline     (same as start)"),
+            }
+            let explicit: Vec<&str> = [(r.explicit_start, "start"), (r.explicit_stop, "stop")]
+                .into_iter()
+                .filter_map(|(on, what)| on.then_some(what))
+                .collect();
+            if !explicit.is_empty() {
+                out!(
+                    self,
+                    "  explicit   {} (only when named or with --all)",
+                    explicit.join(", ")
+                );
             }
             match r.matches.len() {
                 0 => out!(self, "  matches    none (not running)"),

@@ -87,8 +87,8 @@ mod tests {
     #[test]
     fn name_format() {
         assert_eq!(
-            file_name("web_api", &t(7), 0),
-            "web_api_20261125_143207.0.log"
+            file_name("WEB_API", &t(7), 0),
+            "WEB_API_20261125_143207.0.log"
         );
     }
 
@@ -111,11 +111,11 @@ mod tests {
         for _ in 0..11 {
             create_at(dir.path(), "web", &t(2)).unwrap();
         }
-        create_at(dir.path(), "web_api", &t(9)).unwrap();
+        create_at(dir.path(), "WEB_API", &t(9)).unwrap();
         fs::write(dir.path().join("web_notes.log"), "").unwrap();
         let l = latest(dir.path(), "web").unwrap();
         assert!(l.ends_with("web_20261125_143202.10.log"), "{l:?}");
-        let l = latest(dir.path(), "web_api").unwrap();
-        assert!(l.ends_with("web_api_20261125_143209.0.log"));
+        let l = latest(dir.path(), "WEB_API").unwrap();
+        assert!(l.ends_with("WEB_API_20261125_143209.0.log"));
     }
 }

@@ -516,6 +516,10 @@ pub struct CheckReport {
     pub matches: Vec<ProcessInfo>,
     /// Processes running the same program that do not match.
     pub near_misses: Vec<ProcessInfo>,
+    /// Whether bare `start` and `restart` skip the service.
+    pub explicit_start: bool,
+    /// Whether bare `stop` and `restart` skip the service.
+    pub explicit_stop: bool,
     /// Problems that do not make the config invalid.
     pub warnings: Vec<String>,
 }
@@ -559,6 +563,8 @@ pub fn check_with(rata: &Rata, config: &Config, table: &ProcessTable) -> Vec<Che
                 psline: svc.psline.as_ref().map(|_| m.args().to_vec()),
                 near_misses: table.near_misses(&m).into_iter().cloned().collect(),
                 matches,
+                explicit_start: svc.explicit_start,
+                explicit_stop: svc.explicit_stop,
                 warnings,
             }
         })

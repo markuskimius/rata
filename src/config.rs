@@ -4,12 +4,18 @@
 //! version = 1                                  # optional; only 1 is accepted
 //!
 //! [[service]]
-//! name         = "web_api"                     # required
-//! description  = "Web API Server"              # optional
-//! start        = "${RATA}/bin/api --port 8080" # required; string or array
-//! psline       = "..."                         # optional; defaults to start
-//! stop_timeout = 10                            # optional; seconds; default 10
+//! name           = "WEB_API"                     # required
+//! description    = "Web API Server"              # optional
+//! start          = "${RATA}/bin/api --port 8080" # required; string or array
+//! psline         = "..."                         # optional; defaults to start
+//! stop_timeout   = 10                            # optional; seconds; default 10
+//! explicit_start = false                         # optional; see Service
+//! explicit_stop  = false                         # optional; see Service
 //! ```
+//!
+//! Service names are case-sensitive in the file. On the command line they
+//! match case-insensitively when only one service matches (see
+//! [`Config::service`]).
 
 use std::collections::HashMap;
 use std::fmt;
@@ -88,6 +94,12 @@ pub struct Service {
     pub psline: Option<CommandSpec>,
     /// Per-service graceful stop timeout, in seconds.
     pub stop_timeout: Option<u64>,
+    /// Bare `start` and `restart` skip this service; it starts only when
+    /// named or with `--all`.
+    pub explicit_start: bool,
+    /// Bare `stop` and `restart` skip this service; it stops only when named
+    /// or with `--all`.
+    pub explicit_stop: bool,
 }
 
 impl Service {
@@ -141,6 +153,10 @@ struct RawService {
     start: Spanned<CommandSpec>,
     psline: Option<Spanned<CommandSpec>>,
     stop_timeout: Option<Spanned<i64>>,
+    #[serde(default)]
+    explicit_start: bool,
+    #[serde(default)]
+    explicit_stop: bool,
 }
 
 impl Config {
@@ -249,6 +265,8 @@ impl Config {
                 start: s.start.into_inner(),
                 psline: s.psline.map(Spanned::into_inner),
                 stop_timeout,
+                explicit_start: s.explicit_start,
+                explicit_stop: s.explicit_stop,
             });
         }
         Ok(Config {
@@ -258,9 +276,33 @@ impl Config {
         })
     }
 
-    /// Look up a service by name.
+    /// Look up a service by name: an exact match, or else the only service
+    /// whose name matches ignoring ASCII case.
     pub fn service(&self, name: &str) -> Option<&Service> {
-        self.services.iter().find(|s| s.name == name)
+        self.lookup(name).ok()
+    }
+
+    /// Like [`Config::service`], with an error that says what went wrong.
+    pub fn lookup(&self, name: &str) -> Result<&Service> {
+        if let Some(s) = self.services.iter().find(|s| s.name == name) {
+            return Ok(s);
+        }
+        let folded: Vec<&Service> = self
+            .services
+            .iter()
+            .filter(|s| s.name.eq_ignore_ascii_case(name))
+            .collect();
+        match folded.as_slice() {
+            [one] => Ok(one),
+            [] => Err(Error::UnknownService {
+                name: name.to_string(),
+                configured: self.services.iter().map(|s| s.name.clone()).collect(),
+            }),
+            many => Err(Error::AmbiguousService {
+                name: name.to_string(),
+                matches: many.iter().map(|s| s.name.clone()).collect(),
+            }),
+        }
     }
 
     /// The services named in `names`, in config order. An empty list selects
@@ -269,20 +311,119 @@ impl Config {
         if names.is_empty() {
             return Ok(self.services.iter().collect());
         }
+        let mut chosen = Vec::with_capacity(names.len());
         for n in names {
-            if self.service(n).is_none() {
-                return Err(Error::UnknownService {
-                    name: n.clone(),
-                    configured: self.services.iter().map(|s| s.name.clone()).collect(),
-                });
-            }
+            chosen.push(self.lookup(n)?.name.as_str());
         }
         Ok(self
             .services
             .iter()
-            .filter(|s| names.contains(&s.name))
+            .filter(|s| chosen.contains(&s.name.as_str()))
             .collect())
     }
+
+    /// The services a `start`, `stop`, or `restart` acts on, and the ones it
+    /// skips.
+    ///
+    /// Named services are always included. With no names, every service is
+    /// included except those whose `explicit_start` / `explicit_stop` flag
+    /// applies to `action`, unless `all` is set.
+    pub fn select_for(&self, action: Action, names: &[String], all: bool) -> Result<Selection<'_>> {
+        let candidates = self.select(names)?;
+        if !names.is_empty() || all {
+            return Ok(Selection {
+                services: candidates,
+                skipped: Vec::new(),
+            });
+        }
+        let mut sel = Selection {
+            services: Vec::new(),
+            skipped: Vec::new(),
+        };
+        for svc in candidates {
+            match action.skip_reason(svc) {
+                Some(reason) => sel.skipped.push(Skipped {
+                    service: svc,
+                    reason,
+                }),
+                None => sel.services.push(svc),
+            }
+        }
+        Ok(sel)
+    }
+}
+
+/// A command that changes services.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    /// `rata start`
+    Start,
+    /// `rata stop`
+    Stop,
+    /// `rata restart`
+    Restart,
+}
+
+impl Action {
+    /// The command name, for messages.
+    pub fn name(self) -> &'static str {
+        match self {
+            Action::Start => "start",
+            Action::Stop => "stop",
+            Action::Restart => "restart",
+        }
+    }
+
+    /// The flag that makes a bare command skip `svc`, if any.
+    pub fn skip_reason(self, svc: &Service) -> Option<SkipReason> {
+        let start = svc.explicit_start && matches!(self, Action::Start | Action::Restart);
+        let stop = svc.explicit_stop && matches!(self, Action::Stop | Action::Restart);
+        if stop {
+            Some(SkipReason::ExplicitStop)
+        } else if start {
+            Some(SkipReason::ExplicitStart)
+        } else {
+            None
+        }
+    }
+}
+
+/// Why a bare command skipped a service.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkipReason {
+    /// The service sets `explicit_start = true`.
+    ExplicitStart,
+    /// The service sets `explicit_stop = true`.
+    ExplicitStop,
+}
+
+impl SkipReason {
+    /// The config field, e.g. `explicit_stop`.
+    pub fn field(self) -> &'static str {
+        match self {
+            SkipReason::ExplicitStart => "explicit_start",
+            SkipReason::ExplicitStop => "explicit_stop",
+        }
+    }
+}
+
+/// A service that a bare command skipped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Skipped<'a> {
+    /// The service.
+    pub service: &'a Service,
+    /// Which flag caused the skip.
+    pub reason: SkipReason,
+}
+
+/// The result of [`Config::select_for`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Selection<'a> {
+    /// Services to act on, in config order.
+    pub services: Vec<&'a Service>,
+    /// Services skipped because of `explicit_start` / `explicit_stop`, in
+    /// config order.
+    pub skipped: Vec<Skipped<'a>>,
 }
 
 /// Check that `name` is a valid service identifier.

@@ -11,7 +11,8 @@ version = 1
 
 [[service]]
 # Required. Letters, digits, and _, not starting with a digit (max 64).
-name = "web_api"
+# By convention, service names are ALL CAPS.
+name = "WEB_API"
 
 # Optional. A short, human-readable name shown by `rata status`.
 description = "Web API Server"
@@ -24,7 +25,7 @@ description = "Web API Server"
 start = "${RATA}/bin/api --port 8080"
 
 [[service]]
-name = "worker"
+name = "WORKER"
 description = "Background Job Worker"
 
 # A command can also be an array of arguments, used exactly as written.
@@ -35,7 +36,7 @@ start = ["java", "-jar", "${RATA}/lib/worker.jar"]
 stop_timeout = 30
 
 [[service]]
-name = "proxy"
+name = "PROXY"
 description = "Reverse Proxy"
 
 # Shell features (pipes, &&, redirection) need an explicit shell...

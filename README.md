@@ -2,22 +2,21 @@
 
 Start, stop, and monitor long-running services.
 
-`rata` is the first package of the rata suite. It is a command-line tool
-that manages the services listed in a TOML config file, and a Rust library
-that the suite's other packages build on. It runs on Linux, macOS, and
-Windows, on x86_64 and ARM64.
+`rata` is a command-line tool that manages the services listed in a TOML
+config file, and a Rust library for programs that work with rata installs.
+It runs on Linux, macOS, and Windows, on x86_64 and ARM64.
 
 ```console
 $ rata start
-web_api  started           pid 4121  log work/log/web_api_20261125_143207.0.log
-worker   already running   pid 3010
-cache    FAILED            exited within 500ms (code 1), see work/log/cache_20261125_143207.0.log
+WEB_API  started           pid 4121  log work/log/WEB_API_20261125_143207.0.log
+WORKER   already running   pid 3010
+CACHE    FAILED            exited within 500ms (code 1), see work/log/CACHE_20261125_143207.0.log
 
 $ rata status
 NAME     STATE    PID   DESCRIPTION
-web_api  running  4121  Web API Server
-worker   running  3010  Background Job Worker
-cache    stopped  -     Cache Server
+WEB_API  running  4121  Web API Server
+WORKER   running  3010  Background Job Worker
+CACHE    stopped  -     Cache Server
 ```
 
 ## Install
@@ -62,7 +61,7 @@ cargo install rata
 
    ```toml
    [[service]]
-   name = "web_api"
+   name = "WEB_API"
    description = "Web API Server"
    start = "${RATA}/bin/api --port 8080"
    ```
@@ -105,7 +104,7 @@ prints errors only. `-V`/`--version` shows the version.
 version = 1                                  # optional; only 1 is accepted
 
 [[service]]
-name         = "web_api"                     # required
+name         = "WEB_API"                     # required
 description  = "Web API Server"              # optional
 start        = "${RATA}/bin/api --port 8080" # required; string or array
 psline       = "..."                         # optional; defaults to start

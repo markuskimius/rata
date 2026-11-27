@@ -80,6 +80,16 @@ pub enum Error {
         configured: Vec<String>,
     },
 
+    /// A service named on the command line matches several services when
+    /// case is ignored, and none exactly.
+    #[error("service name \"{name}\" is ambiguous: it matches {} (type the name exactly)", matches.join(", "))]
+    AmbiguousService {
+        /// The name that was asked for.
+        name: String,
+        /// The services it matches ignoring case, in config order.
+        matches: Vec<String>,
+    },
+
     /// Another rata command held the lock for longer than the wait limit.
     #[error("another rata command is running (lock: {})", .0.display())]
     LockBusy(PathBuf),
