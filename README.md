@@ -320,7 +320,8 @@ time,service,state,pid,procs,cpu_pct,rss,disk_read,disk_written,uptime_s
   directly. An empty value means "not available" (for example, the load
   average on Windows).
 - A service row sums the service's whole process tree: the matching
-  processes and their children. Stopped services get a row too, with
+  processes and their children (on Windows, not counting the `conhost.exe`
+  console host that rata gives each service). Stopped services get a row too, with
   `state` set to `stopped`.
 - `mem_used` is `mem_total - mem_avail`.
 - Every sample is written and flushed as it is taken, so a crash loses at
