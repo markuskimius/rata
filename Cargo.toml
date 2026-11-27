@@ -14,7 +14,7 @@ include = [
     "src/**",
     "tests/**",
     "examples/**",
-    "docs/service.example.toml",
+    "docs/*.toml",
     "README.md",
     "CHANGELOG.md",
     "LICENSE-*",

@@ -94,6 +94,12 @@ skipped.";
 const STATUS_AFTER_HELP: &str = "\
 Exit status is 0 if all listed services are running, 3 if any are stopped.";
 
+const INIT_AFTER_HELP: &str = "\
+Creates the work/ tree, a service.toml that runs the rata monitor
+(RATA_MONITOR), and a commented monitor.toml. The directory must not exist
+or must be empty; hidden files (names starting with a dot) do not count.
+rata init never changes an existing install.";
+
 const CHECK_AFTER_HELP: &str = "\
 Validates $RATA/work/cfg/service.toml, then shows each service's start
 command and psline as rata splits them, the processes matching right now,
@@ -195,6 +201,15 @@ enum Command {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+    },
+
+    /// Set up a new rata install in an empty directory
+    #[command(help_template = SUB_TEMPLATE, after_help = INIT_AFTER_HELP)]
+    Init {
+        /// Directory to set up (default: $RATA). Must be absolute; it is
+        /// created if missing
+        #[arg(value_name = "DIR")]
+        dir: Option<std::path::PathBuf>,
     },
 
     /// Validate the config and show what each service matches
@@ -362,6 +377,12 @@ fn dispatch(cli: Cli) -> Result<u8, Error> {
                     EXIT_NOT_RUNNING
                 },
             )
+        }
+        Command::Init { dir } => {
+            let root = crate::init::target_dir(dir)?;
+            let report = crate::init::init(&root)?;
+            output::init(&report, quiet);
+            Ok(EXIT_OK)
         }
         Command::Check => {
             let (rata, config) = load()?;

@@ -517,3 +517,61 @@ fn explicit_start_and_stop() {
             "explicit   stop (only when named or with --all)",
         ));
 }
+
+#[test]
+fn init_sets_up_an_empty_directory() {
+    let env = Env::new("init");
+    let root = env.root().join("fresh");
+
+    // DIR argument; RATA unset.
+    let mut c = Command::cargo_bin("rata").unwrap();
+    c.env_remove("RATA").arg("init").arg(&root);
+    c.assert().code(0).stdout(
+        predicate::str::contains("Created")
+            .and(predicate::str::contains("service.toml"))
+            .and(predicate::str::contains("monitor.toml"))
+            .and(predicate::str::contains("Next steps:")),
+    );
+    let svc = std::fs::read_to_string(root.join("work/cfg/service.toml")).unwrap();
+    assert!(svc.contains("name          = \"RATA_MONITOR\""));
+    assert!(root.join("work/monitor").is_dir());
+
+    // The new install is valid.
+    let mut c = Command::cargo_bin("rata").unwrap();
+    c.env("RATA", &root).arg("check");
+    c.assert()
+        .code(0)
+        .stdout(predicate::str::contains("RATA_MONITOR  rata Monitor"));
+
+    // Not again: the directory is no longer empty.
+    let mut c = Command::cargo_bin("rata").unwrap();
+    c.env("RATA", &root).arg("init");
+    c.assert()
+        .code(2)
+        .stderr(predicate::str::contains("is not empty (found work").and(
+            predicate::str::contains("rata init only sets up a new, empty directory"),
+        ));
+
+    // $RATA is used without DIR; hidden files do not count.
+    let hidden = env.root().join("hidden");
+    std::fs::create_dir(&hidden).unwrap();
+    std::fs::write(hidden.join(".DS_Store"), "").unwrap();
+    let mut c = Command::cargo_bin("rata").unwrap();
+    c.env("RATA", &hidden).arg("init");
+    c.assert().code(0);
+    assert!(hidden.join("work/cfg/monitor.toml").is_file());
+
+    // No DIR and no RATA.
+    let mut c = Command::cargo_bin("rata").unwrap();
+    c.env_remove("RATA").arg("init");
+    c.assert()
+        .code(2)
+        .stderr(predicate::str::contains("rata init needs a directory"));
+
+    // Relative DIR.
+    let mut c = Command::cargo_bin("rata").unwrap();
+    c.arg("init").arg("relative/dir");
+    c.assert()
+        .code(2)
+        .stderr(predicate::str::contains("DIR must be an absolute path"));
+}

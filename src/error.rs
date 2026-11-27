@@ -36,6 +36,34 @@ pub enum Error {
     #[error("RATA is not a directory: {}", .0.display())]
     RataNotDir(PathBuf),
 
+    /// `rata init` got no directory and `RATA` is not set.
+    #[error(
+        "rata init needs a directory: pass one (rata init /opt/rata) or set the RATA environment variable"
+    )]
+    InitNoDir,
+
+    /// The directory for `rata init` is a relative path.
+    #[error("{what} must be an absolute path (got \"{path}\")")]
+    InitNotAbsolute {
+        /// `DIR` or `RATA`: where the path came from.
+        what: &'static str,
+        /// The path as given.
+        path: String,
+    },
+
+    /// The directory for `rata init` exists and is not a directory.
+    #[error("not a directory: {}", .0.display())]
+    InitNotDir(PathBuf),
+
+    /// The directory for `rata init` has visible entries.
+    #[error("{} is not empty (found {found}); rata init only sets up a new, empty directory", dir.display())]
+    InitNotEmpty {
+        /// The directory.
+        dir: PathBuf,
+        /// The first visible entry, with a trailing `/` for directories.
+        found: String,
+    },
+
     /// `$RATA/work/cfg/service.toml` does not exist.
     #[error("config file not found: {}", .0.display())]
     ConfigNotFound(PathBuf),

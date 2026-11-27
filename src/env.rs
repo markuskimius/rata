@@ -4,7 +4,9 @@
 //! $RATA/
 //! └── work/
 //!     ├── cfg/service.toml   service configuration
+//!     ├── cfg/monitor.toml   monitor configuration (optional)
 //!     ├── log/               one log file per service start
+//!     ├── monitor/           stats recorded by rata-monitor
 //!     └── run/               lock file
 //! ```
 
@@ -88,9 +90,19 @@ impl Rata {
         self.work_dir().join("run")
     }
 
+    /// `$RATA/work/monitor`
+    pub fn monitor_dir(&self) -> PathBuf {
+        self.work_dir().join("monitor")
+    }
+
     /// `$RATA/work/cfg/service.toml`
     pub fn config_path(&self) -> PathBuf {
         self.cfg_dir().join("service.toml")
+    }
+
+    /// `$RATA/work/cfg/monitor.toml`
+    pub fn monitor_config_path(&self) -> PathBuf {
+        self.cfg_dir().join("monitor.toml")
     }
 
     /// Create `work/log` and `work/run` if they are missing.
