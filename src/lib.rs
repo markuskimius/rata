@@ -14,7 +14,7 @@
 //!
 //! | Feature | Default | Provides |
 //! |---|---|---|
-//! | *(none)* | | [`env`](mod@env), [`config`], [`cmdline`], [`logfile`], [`Error`] |
+//! | *(none)* | | [`env`](mod@env), [`config`], [`cmdline`], [`logfile`], [`datetime`], [`init`], [`Error`] |
 //! | `service` | | `process`, `service`, `lock`: finding, starting, and stopping processes |
 //! | `cli` | yes | `cli` and the `rata` binary (implies `service`) |
 //!
@@ -28,6 +28,7 @@ pub mod config;
 pub mod datetime;
 pub mod env;
 pub mod error;
+pub mod init;
 pub mod logfile;
 
 #[cfg(feature = "service")]

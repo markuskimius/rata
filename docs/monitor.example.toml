@@ -1,0 +1,29 @@
+# rata monitor configuration
+#
+# $RATA/work/cfg/monitor.toml configures rata-monitor, the RATA_MONITOR
+# service that records host and per-service stats to $RATA/work/monitor.
+# The file is optional; every setting below shows its default.
+# Run `rata check` to validate it. rata-monitor reads it when it starts, so
+# restart the service after a change:  rata restart RATA_MONITOR
+
+# Config format version. Optional; only 1 is supported.
+#version = 1
+
+# Seconds between samples, from 5 to 3600. Samples are taken on the clock
+# (with 30, at :00 and :30 past each minute).
+#interval = 30
+
+# Record host stats (CPU, memory, disks, network). Set this to false on all
+# but one rata install on a machine, so the host is recorded only once.
+# Per-service stats are always recorded.
+#system = true
+
+[disks]
+# Mount points to leave out, as glob patterns (* and ?). Pseudo filesystems
+# are always left out.
+#exclude = []
+
+[net]
+# Network interfaces to leave out, as glob patterns. Loopback interfaces and
+# interfaces that have never sent or received anything are always left out.
+#exclude = []

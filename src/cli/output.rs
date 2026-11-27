@@ -341,6 +341,40 @@ impl<'a> Printer<'a> {
     }
 }
 
+/// What `rata init` created, and what to do next.
+pub(super) fn init(r: &crate::init::InitReport, quiet: bool) {
+    if quiet {
+        return;
+    }
+    let mut o = io::stdout().lock();
+    let root = r.root.display();
+    let verb = if r.created_root { "Created" } else { "Set up" };
+    let _ = writeln!(o, "{verb} {root}");
+    let sep = std::path::MAIN_SEPARATOR;
+    for p in &r.created {
+        let rel = p.strip_prefix(&r.root).unwrap_or(p).display();
+        let slash = if p.is_dir() {
+            sep.to_string()
+        } else {
+            String::new()
+        };
+        let _ = writeln!(o, "  {rel}{slash}");
+    }
+    let _ = writeln!(o, "\nNext steps:");
+    let set =
+        std::env::var_os(crate::env::RATA_VAR).is_some_and(|v| std::path::Path::new(&v) == r.root);
+    if !set {
+        if cfg!(windows) {
+            let _ = writeln!(o, "  $env:RATA = \"{root}\"");
+        } else {
+            let quoted = shell_words::quote(&r.root.to_string_lossy()).into_owned();
+            let _ = writeln!(o, "  export RATA={quoted}");
+        }
+    }
+    let _ = writeln!(o, "  rata check");
+    let _ = writeln!(o, "  rata start");
+}
+
 /// `4121`, `4121,4122,4123`, or `4121 +3` for longer lists.
 fn pids_str(pids: &[u32]) -> String {
     if pids.len() > 3 {

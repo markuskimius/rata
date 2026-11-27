@@ -1,0 +1,23 @@
+# rata service configuration
+#
+# Each [[service]] table defines one service. Services start in the order
+# they appear here and stop in reverse order. Run `rata check` to validate
+# this file. See docs/service.example.toml in the rata repository, or the
+# README, for every option.
+version = 1
+
+# The rata monitor records host and per-service stats to $RATA/work/monitor;
+# view them with `rata mon`. explicit_stop keeps a bare `rata stop` from
+# stopping it: stop it with `rata stop RATA_MONITOR` or `rata stop --all`.
+[[service]]
+name          = "RATA_MONITOR"
+description   = "rata Monitor"
+start         = "rata-monitor"
+explicit_stop = true
+
+# Add your own services below. By convention, names are ALL CAPS.
+#
+# [[service]]
+# name        = "WEB_API"
+# description = "Web API Server"
+# start       = "${RATA}/bin/api --port 8080"

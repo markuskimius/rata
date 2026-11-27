@@ -8,6 +8,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `rata init [DIR]` sets up a new install in an empty directory (hidden
+  files do not count): the `work/` tree, a `service.toml` that runs the rata
+  monitor (`RATA_MONITOR`, with `explicit_stop = true`), and a commented
+  `monitor.toml`. Without `DIR` it uses `$RATA`.
 - `explicit_start` and `explicit_stop` service options: `start`, `stop`, and
   `restart` without names skip such services. Name them, or pass the new
   `--all` option, to include them. Skipped services are listed in the output.
