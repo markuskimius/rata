@@ -235,10 +235,19 @@ impl Collector {
                 if matched.is_empty() {
                     return ServiceRow::stopped(time, &svc.name);
                 }
+                // On Windows, every service has a conhost.exe child: the
+                // hidden console rata gives it. It is not part of the
+                // service, so it (and anything under it) is left out.
+                let hosts: Vec<u32> = table
+                    .processes()
+                    .iter()
+                    .filter(|p| cfg!(windows) && p.name.eq_ignore_ascii_case("conhost.exe"))
+                    .flat_map(|p| std::iter::once(p.pid).chain(table.descendants(p.pid)))
+                    .collect();
                 let mut tree: Vec<u32> = Vec::new();
                 for p in &matched {
                     for pid in std::iter::once(p.pid).chain(table.descendants(p.pid)) {
-                        if !tree.contains(&pid) {
+                        if !tree.contains(&pid) && !hosts.contains(&pid) {
                             tree.push(pid);
                         }
                     }

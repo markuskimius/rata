@@ -37,6 +37,9 @@ use crate::env::{RATA_VAR, Rata};
 
 static HELPER: OnceLock<PathBuf> = OnceLock::new();
 
+/// Exit code of a process ended by a console control event (0xC000013A).
+const STATUS_CONTROL_C_EXIT: i32 = 0xC000_013Au32 as i32;
+
 /// Helper exit code: CTRL_BREAK was sent.
 const HELPER_SENT: i32 = 0;
 /// Helper exit code: sending CTRL_BREAK failed.
@@ -168,7 +171,10 @@ pub(super) fn terminate(proc: &ProcessInfo, table: &ProcessTable) -> io::Result<
         .creation_flags(DETACHED_PROCESS)
         .output()?;
     Ok(match out.status.code() {
-        Some(HELPER_SENT) => Graceful::Sent,
+        // The helper is still attached to the service's console when the
+        // service exits; if that closes the console first, Windows ends the
+        // helper with STATUS_CONTROL_C_EXIT. The event was sent by then.
+        Some(HELPER_SENT | STATUS_CONTROL_C_EXIT) => Graceful::Sent,
         Some(HELPER_SHARED) => Graceful::Unavailable(shared_reason(&out.stdout, table)),
         Some(HELPER_NO_CONSOLE) => Graceful::Unavailable("no console to attach to".into()),
         Some(HELPER_SEND_FAILED) => Graceful::Unavailable("CTRL_BREAK failed".into()),
