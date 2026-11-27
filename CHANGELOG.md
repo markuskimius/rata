@@ -19,6 +19,13 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Settings are in the optional `$RATA/work/cfg/monitor.toml` (`interval`,
   `system`, `[disks] exclude`, `[net] exclude`). It never deletes files;
   older days' files never change.
+- `rata mon [NAME]...` shows the newest sample: host CPU, load, memory,
+  disks, and network, and each service's state, PID, process count, CPU,
+  memory, and uptime. `--json` prints raw values, `-w`/`--watch` redraws
+  every second, and `-q` only sets the exit status. Naming services shows
+  only those. Exit status 3 means the data is out of date (older than two
+  intervals, or the monitor is not running) or a service shown is not
+  running.
 - `monitor` library feature (`rata::monitor`), included in `cli`.
 - `rata check` also validates `monitor.toml`.
 - Windows: a service whose program is a bare name of a program installed
