@@ -1,8 +1,10 @@
 //! The lock that keeps two rata commands from changing services at once.
 //!
 //! `start`, `stop`, and `restart` hold an exclusive lock on
-//! `$RATA/work/run/rata.lock`. The operating system releases it when the
-//! file is closed or the process exits, so a crash never leaves a stale lock.
+//! `$RATA/work/run/rata.lock`. `rata archive` uses its own lock,
+//! `archive.lock`, so archiving never holds up service commands. The
+//! operating system releases a lock when the file is closed or the process
+//! exits, so a crash never leaves a stale lock.
 
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
@@ -28,8 +30,14 @@ pub struct Lock {
 impl Lock {
     /// Take the lock on `$RATA/work/run/rata.lock`, waiting up to `wait`.
     pub fn acquire(rata: &Rata, wait: Duration) -> Result<Lock> {
+        Self::acquire_named(rata, "rata.lock", wait)
+    }
+
+    /// Take the lock on `$RATA/work/run/<file_name>`, waiting up to `wait`
+    /// (zero tries once).
+    pub fn acquire_named(rata: &Rata, file_name: &str, wait: Duration) -> Result<Lock> {
         rata.ensure_runtime_dirs()?;
-        let path = rata.run_dir().join("rata.lock");
+        let path = rata.run_dir().join(file_name);
         let file = OpenOptions::new()
             .read(true)
             .write(true)

@@ -340,6 +340,116 @@ impl<'a> Printer<'a> {
         }
     }
 
+    pub(super) fn check_archive(&self, a: &crate::archive::ArchiveConfig) {
+        out!(self, "");
+        if !a.exists {
+            out!(
+                self,
+                "archive {} not found; rata archive does nothing",
+                self.path(&a.path)
+            );
+            return;
+        }
+        let n = a.rules.len();
+        out!(
+            self,
+            "archive {} OK ({n} rule{})",
+            self.path(&a.path),
+            if n == 1 { "" } else { "s" }
+        );
+        let w = a.rules.iter().map(|r| r.path_text.len()).max().unwrap_or(0);
+        for r in &a.rules {
+            let missing = if r.dir.is_dir() {
+                ""
+            } else {
+                "  (directory does not exist)"
+            };
+            out!(
+                self,
+                "  {:<w$}  {}  {}{missing}",
+                r.path_text,
+                r.describe_patterns(),
+                r.describe()
+            );
+        }
+    }
+
+    /// One action of `rata archive`: a line per step done (or planned), and
+    /// the error, if any, on stderr.
+    pub(super) fn archive_entry(&self, e: &crate::archive::Entry, dry_run: bool) {
+        use crate::archive::Action;
+        let (compress, mv, delete) = if dry_run {
+            ("would compress", "would move", "would delete")
+        } else {
+            ("compressed", "moved", "deleted")
+        };
+        let w = if dry_run { 14 } else { 10 };
+        let src = self.path(&e.path);
+        if let Some(gz) = &e.compressed {
+            out!(self, "{compress:<w$}  {src} -> {}", self.file_name(gz));
+        }
+        if let Some(to) = &e.moved_to {
+            let from = e
+                .compressed
+                .as_deref()
+                .map_or(src.clone(), |p| self.path(p));
+            out!(self, "{mv:<w$}  {from} -> {}", self.path(to));
+        }
+        if e.action == Action::Delete && e.ok() {
+            out!(self, "{delete:<w$}  {src}");
+        }
+        if let Some(msg) = &e.error {
+            err!("{:<w$}  {src}: {msg}", "FAILED");
+        }
+    }
+
+    /// The totals of `rata archive`, and problems that are not about one file.
+    pub(super) fn archive_summary(&self, r: &crate::archive::ArchiveReport, dry_run: bool) {
+        for d in &r.missing_dirs {
+            out!(self, "skipped {}: directory does not exist", self.path(d));
+        }
+        for p in &r.problems {
+            err!("error: {p}");
+        }
+        let count =
+            |f: &dyn Fn(&crate::archive::Entry) -> bool| r.entries.iter().filter(|e| f(e)).count();
+        let compressed = count(&|e| e.compressed.is_some());
+        let moved = count(&|e| e.moved_to.is_some());
+        let deleted = count(&|e| e.action == crate::archive::Action::Delete && e.ok());
+        let failed = count(&|e| !e.ok());
+        let mut parts = Vec::new();
+        let (c, m, d) = if dry_run {
+            ("to compress", "to move", "to delete")
+        } else {
+            ("compressed", "moved", "deleted")
+        };
+        for (n, what) in [
+            (compressed, c),
+            (moved, m),
+            (deleted, d),
+            (failed, "failed"),
+        ] {
+            if n > 0 {
+                parts.push(format!("{n} {what}"));
+            }
+        }
+        let total = if parts.is_empty() {
+            "nothing to archive".to_string()
+        } else {
+            parts.join(", ")
+        };
+        if dry_run {
+            out!(self, "dry run: {total}; nothing was changed");
+        } else {
+            out!(self, "{total}");
+        }
+    }
+
+    fn file_name(&self, p: &std::path::Path) -> String {
+        p.file_name()
+            .map_or_else(|| self.path(p), |n| n.to_string_lossy().into_owned())
+    }
+
     fn near_misses(&self, indent: &str, misses: &[ProcessInfo]) {
         for p in misses.iter().take(MAX_NEAR_MISSES) {
             out!(

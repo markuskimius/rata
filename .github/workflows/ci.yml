@@ -72,6 +72,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked --no-default-features --features service
       - run: cargo test --locked --no-default-features --features monitor --lib
+      - run: cargo test --locked --no-default-features --features archive --lib
       - run: cargo check --locked --no-default-features
 
   msrv:

@@ -1,7 +1,9 @@
 //! Setting up a new rata install (`rata init`).
 //!
 //! [`init`] creates the `work/` tree, a `service.toml` that runs the rata
-//! monitor, and a commented `monitor.toml`. It only works in a directory
+//! monitor, a commented `monitor.toml`, and an `archive.toml` that
+//! compresses old logs and monitor files after 3 days and deletes them
+//! after 90. It only works in a directory
 //! that does not exist yet or is empty; hidden entries (names starting with
 //! `.`, and on Windows files with the hidden attribute) do not count.
 
@@ -17,6 +19,9 @@ pub const SERVICE_TEMPLATE: &str = include_str!("../docs/init.service.toml");
 
 /// The `monitor.toml` that `rata init` writes.
 pub const MONITOR_TEMPLATE: &str = include_str!("../docs/monitor.example.toml");
+
+/// The `archive.toml` that `rata init` writes.
+pub const ARCHIVE_TEMPLATE: &str = include_str!("../docs/init.archive.toml");
 
 /// What [`init`] created.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,6 +92,7 @@ pub fn init(root: &Path) -> Result<InitReport> {
     for (path, text) in [
         (rata.config_path(), SERVICE_TEMPLATE),
         (rata.monitor_config_path(), MONITOR_TEMPLATE),
+        (rata.archive_config_path(), ARCHIVE_TEMPLATE),
     ] {
         write_new(&path, text)?;
         created.push(path);
@@ -167,6 +173,7 @@ mod tests {
         assert_eq!(c.services[0].name, "RATA_MONITOR");
         assert!(c.services[0].explicit_stop);
         assert!(rata.monitor_config_path().is_file());
+        assert!(rata.archive_config_path().is_file());
     }
 
     #[test]

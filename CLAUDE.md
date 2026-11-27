@@ -17,8 +17,9 @@ sync with any behavior change.
 - `src/datetime.rs`: the rata datetime format
   (`2026-11-26 14:30:00.000000000 -0400s`; `s` = DST, a space = standard
   time). Use it for every timestamp rata writes (not file names).
-- `src/init.rs`: `rata init`; templates are `docs/init.service.toml` and
-  `docs/monitor.example.toml` (both `include_str!`, tested as valid).
+- `src/init.rs`: `rata init`; templates are `docs/init.service.toml`,
+  `docs/monitor.example.toml`, and `docs/init.archive.toml` (all
+  `include_str!`, tested as valid).
 - `src/process/`: `mod.rs` holds the cross-platform scan (sysinfo);
   `unix.rs` handles setsid and signals; `windows.rs` handles the new
   process group, the CTRL_BREAK helper (`rata __ctrl-break`, hidden) and
@@ -32,9 +33,17 @@ sync with any behavior change.
   tail reads), `sample.rs` (row types and columns), `csv.rs`, `config.rs`
   (`monitor.toml`), `signal.rs` (graceful stop), `mod.rs` (the run loop).
 - `src/bin/rata-monitor.rs`: the `RATA_MONITOR` service's binary.
+- `src/archive/` (feature `archive`): `config.rs` (`archive.toml`: rules,
+  calendar ages `h`/`d`/`w`/`mo`/`y`, `move_to` templates), `glob.rs`
+  (extended globs: `[a-z]`, `{a,b}`, `\` escapes; the monitor keeps its
+  simpler matcher because Windows mount points contain `\`), `mod.rs` (`decide` is the pure per-file
+  decision; `run` scans, then compresses, moves, or deletes). Every action
+  is on files in a rule's `path`; nothing under `move_to` is ever touched
+  after a move, so `move_after` and `delete_after` are mutually exclusive.
 - `src/cli/mon.rs`: `rata mon` (text, `--json`, `--watch`).
 - `src/lock.rs`: `work/run/rata.lock` (`File::try_lock`).
-  `RATA_LOCK_TIMEOUT` sets the wait.
+  `RATA_LOCK_TIMEOUT` sets the wait. `rata archive` takes `archive.lock`
+  without waiting.
 - `src/cli/`: clap definitions with custom help templates; `output.rs`
   does all printing.
 - `examples/testsvc.rs`: a fake service for the end-to-end tests (not a
@@ -48,10 +57,11 @@ sync with any behavior change.
 
 - Minimum Rust is 1.89, because of `File::try_lock` (and sysinfo 0.38 needs
   1.88). Do not bump sysinfo past 0.38 without raising the minimum.
-- Features: `cli` (the default) implies `service` and `monitor`; `monitor`
+- Features: `cli` (the default) implies `service`, `monitor`, and
+  `archive`; `archive` implies `monitor` (and adds flate2); `monitor`
   implies `service`; the bare library has no process code. CI checks the
-  `--no-default-features`, `--features service`, and `--features monitor`
-  builds.
+  `--no-default-features`, `--features service`, `--features monitor`,
+  and `--features archive` builds.
 - Long-running services that ship with rata get their own binary (like
   `rata-monitor`), never a subcommand of `rata`. On Windows, `rata start`
   runs a bare-named program installed next to `rata.exe` from a copy in
@@ -59,7 +69,7 @@ sync with any behavior change.
   running service never blocks an upgrade.
 - Conventions: service names are ALL CAPS; suite services start with
   `RATA_`. Neither is enforced or special-cased in code.
-- The monitor never deletes files (retention is a separate, future tool).
+- The monitor never deletes files (retention is `rata archive`).
   Only today's files are written.
 - Exit codes: 0 ok, 1 a service failed, 2 config or environment error, 3
   `status` found a service not running, or `mon` found out-of-date data or

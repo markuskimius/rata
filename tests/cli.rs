@@ -538,6 +538,7 @@ fn init_sets_up_an_empty_directory() {
         predicate::str::contains("Created")
             .and(predicate::str::contains("service.toml"))
             .and(predicate::str::contains("monitor.toml"))
+            .and(predicate::str::contains("archive.toml"))
             .and(predicate::str::contains("Next steps:")),
     );
     let svc = std::fs::read_to_string(root.join("work/cfg/service.toml")).unwrap();
@@ -826,4 +827,159 @@ fn mon_shows_latest_sample() {
         .stderr(predicate::str::contains(
             "RATA_MONITOR is not running (start it with: rata start RATA_MONITOR)",
         ));
+}
+
+/// Set a file's last-modified time to `days` days ago.
+fn age_file(path: &Path, days: u64) {
+    let t = SystemTime::now() - Duration::from_secs(days * 86_400);
+    let f = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+    f.set_times(std::fs::FileTimes::new().set_modified(t))
+        .unwrap();
+}
+
+#[test]
+fn archive_compresses_and_deletes_but_not_live_logs() {
+    let env = Env::new("archive");
+    let log = env.root().join("work/log");
+
+    // Without archive.toml, nothing is done.
+    env.two_services();
+    env.rata(&["archive"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains(
+            "archive.toml not found; nothing to archive",
+        ));
+
+    std::fs::write(
+        env.root().join("work/cfg/archive.toml"),
+        rata::init::ARCHIVE_TEMPLATE,
+    )
+    .unwrap();
+    env.rata(&["check"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains(
+            "compress after 3d, delete after 90d",
+        ));
+
+    // The running service's log is old but still being written.
+    env.rata(&["start", "WEB"]).assert().code(0);
+    let v = env.status_json();
+    let live = PathBuf::from(v["services"][0]["log"].as_str().unwrap());
+    age_file(&live, 100);
+
+    let old = log.join("WORKER_20260801_000000.0.log");
+    let mid = log.join("WORKER_20261101_000000.0.log");
+    std::fs::write(&old, "old").unwrap();
+    std::fs::write(&mid, "mid").unwrap();
+    age_file(&old, 100);
+    age_file(&mid, 10);
+
+    env.rata(&["archive", "--dry-run"]).assert().code(0).stdout(
+        predicate::str::contains("would delete    work").and(predicate::str::contains(
+            "dry run: 1 to compress, 1 to delete",
+        )),
+    );
+    assert!(old.exists() && mid.exists());
+
+    env.rata(&["archive"]).assert().code(0).stdout(
+        predicate::str::contains("compressed  work")
+            .and(predicate::str::contains("WORKER_20261101_000000.0.log.gz"))
+            .and(predicate::str::contains("1 compressed, 1 deleted")),
+    );
+    assert!(!old.exists() && !mid.exists());
+    assert!(log.join("WORKER_20261101_000000.0.log.gz").is_file());
+    assert!(live.is_file());
+
+    env.rata(&["-q", "archive"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::is_empty());
+
+    // A file that cannot be moved makes the run fail with exit 1.
+    std::fs::write(
+        env.root().join("work/cfg/archive.toml"),
+        "[[rule]]\npath = \"work/log\"\nmatch = [\"WORKER_*.log\"]\nmove_after = \"1d\"\nmove_to = \"archive\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(env.root().join("archive")).unwrap();
+    std::fs::write(
+        env.root().join("archive/WORKER_20261101_000000.0.log.gz"),
+        "other",
+    )
+    .unwrap();
+    env.rata(&["archive"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("FAILED"));
+    assert!(log.join("WORKER_20261101_000000.0.log.gz").is_file());
+}
+
+#[test]
+fn archive_config_errors_lock_and_help() {
+    let env = Env::new("archive-errors");
+    env.two_services();
+    let cfg = env.root().join("work/cfg/archive.toml");
+
+    // An invalid archive.toml stops both check and archive with exit 2.
+    std::fs::write(
+        &cfg,
+        "[[rule]]\npath = \"work/log\"\nmatch = [\"*.log\"]\nmove_after = \"30d\"\nmove_to = \"a\"\ndelete_after = \"90d\"\n",
+    )
+    .unwrap();
+    for cmd in ["check", "archive"] {
+        env.rata(&[cmd]).assert().code(2).stderr(
+            predicate::str::contains("archive.toml:6:16").and(predicate::str::contains(
+                "can't set both move_after and delete_after",
+            )),
+        );
+    }
+    std::fs::write(
+        &cfg,
+        "[[rule]]\npath = \"work/log\"\nmatch = [\"*.{log\"]\ndelete_after = \"3m\"\n",
+    )
+    .unwrap();
+    env.rata(&["check"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("unclosed {"));
+
+    // check lists the rules, with exclude patterns and spelled-out ages.
+    std::fs::write(
+        &cfg,
+        "[[rule]]\npath = \"work/log\"\nmatch = [\"*.log\"]\nexclude = [\"RATA_*\"]\ncompress_after = \"1 week\"\nmove_after = \"6 months\"\nmove_to = \"${RATA}/archive/{yyyy}\"\n",
+    )
+    .unwrap();
+    env.rata(&["check"]).assert().code(0).stdout(
+        predicate::str::contains("archive.toml OK (1 rule)").and(predicate::str::contains(
+            "*.log except RATA_*  compress after 1w, move after 6mo to ${RATA}/archive/{yyyy}",
+        )),
+    );
+
+    // A second run while one holds the lock exits 2 at once; a dry run
+    // does not need the lock.
+    let rata = rata::Rata::from_path(env.root()).unwrap();
+    let held = rata::archive::lock(&rata).unwrap();
+    env.rata(&["archive"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("another rata archive is running"));
+    env.rata(&["archive", "-n"]).assert().code(0);
+    // Service commands use a different lock.
+    env.rata(&["status"]).assert().code(3);
+    drop(held);
+    env.rata(&["archive"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("nothing to archive"));
+
+    // Help.
+    env.rata(&["help"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("archive  ").and(predicate::str::contains("Archiving:")));
+    env.rata(&["help", "archive"]).assert().code(0).stdout(
+        predicate::str::contains("--dry-run").and(predicate::str::contains("rata archive -q")),
+    );
 }

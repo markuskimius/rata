@@ -1,6 +1,6 @@
 [package]
 name = "rata"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
@@ -24,7 +24,8 @@ include = [
 default = ["cli"]
 service = ["dep:sysinfo", "dep:libc", "dep:windows-sys"]
 monitor = ["service", "sysinfo/disk", "sysinfo/network"]
-cli = ["service", "monitor", "dep:clap", "dep:serde_json"]
+archive = ["monitor", "dep:flate2"]
+cli = ["service", "monitor", "archive", "dep:clap", "dep:serde_json"]
 
 [[bin]]
 name = "rata"
@@ -47,6 +48,7 @@ serde = { version = "1", features = ["derive"] }
 shell-words = "1"
 thiserror = "2"
 toml = "1"
+flate2 = { version = "1", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 sysinfo = { version = "0.38", default-features = false, features = ["system", "user"], optional = true }
