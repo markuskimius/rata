@@ -114,14 +114,17 @@ fn bundled_copy(program: &str, rata: &Rata) -> Option<PathBuf> {
     if program.contains(['\\', '/', ':']) {
         return None;
     }
-    let has_exe = program
-        .get(program.len().saturating_sub(4)..)
-        .is_some_and(|ext| ext.eq_ignore_ascii_case(".exe"));
-    let file = if has_exe {
-        program.to_string()
-    } else {
-        format!("{program}.exe")
+    // `name`, `name.exe`, and `name.EXE` all name the same program; the
+    // copy is always `name.exe`.
+    let stem = match program
+        .len()
+        .checked_sub(4)
+        .and_then(|i| program.get(i..).map(|e| (i, e)))
+    {
+        Some((i, ext)) if ext.eq_ignore_ascii_case(".exe") => &program[..i],
+        _ => program,
     };
+    let file = format!("{stem}.exe");
     let installed = std::env::current_exe().ok()?.parent()?.join(&file);
     if !installed.is_file() {
         return None;
