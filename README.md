@@ -518,7 +518,7 @@ missing, and the monitor creates `monitor/`.
 
 ```toml
 [dependencies]
-rata = { version = "0.3", default-features = false, features = ["service"] }
+rata = { version = "0.4", default-features = false, features = ["service"] }
 ```
 
 | Feature | Provides |
