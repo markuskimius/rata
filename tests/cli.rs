@@ -691,6 +691,10 @@ fn monitor_records_samples() {
     let age = jiff::Timestamp::now().duration_since(time.timestamp);
     assert!(age.as_secs() < 30, "{age:?}");
 
+    let net = monitor_lines(&env, "net");
+    if !net.is_empty() {
+        assert!(net[0].ends_with(",rx_errors,tx_errors,rx_dropped,tx_dropped"));
+    }
     let system = monitor_lines(&env, "system");
     assert!(system[0].starts_with("time,cpu_pct,load1,load5,load15,cores,mem_total"));
     assert!(system.len() >= 2);

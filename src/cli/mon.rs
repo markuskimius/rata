@@ -316,17 +316,21 @@ fn net(s: &mut String, rows: &[NetRow], interval: u64) {
         ("RX/S", true),
         ("TX/S", true),
         ("ERRORS", true),
+        ("DROPPED", true),
     ]);
     for n in rows {
-        let errors = match (n.rx_errors, n.tx_errors) {
-            (None, None) => "-".into(),
+        let sum = |a: Option<u64>, b: Option<u64>| match (a, b) {
+            (None, None) => "-".to_string(),
             (a, b) => (a.unwrap_or(0) + b.unwrap_or(0)).to_string(),
         };
+        let errors = sum(n.rx_errors, n.tx_errors);
+        let dropped = sum(n.rx_dropped, n.tx_dropped);
         t.row(vec![
             n.iface.clone(),
             rate(n.rx_bytes, interval),
             rate(n.tx_bytes, interval),
             errors,
+            dropped,
         ]);
     }
     let _ = writeln!(s);
@@ -512,6 +516,7 @@ fn to_json(v: &View<'_>) -> Value {
                     "iface": n.iface, "rx_bytes": n.rx_bytes, "tx_bytes": n.tx_bytes,
                     "rx_packets": n.rx_packets, "tx_packets": n.tx_packets,
                     "rx_errors": n.rx_errors, "tx_errors": n.tx_errors,
+                    "rx_dropped": n.rx_dropped, "tx_dropped": n.tx_dropped,
                 })
             })
             .collect()

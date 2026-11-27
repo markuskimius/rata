@@ -1,6 +1,6 @@
 //! Taking samples with sysinfo.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 
 use sysinfo::{
@@ -9,6 +9,7 @@ use sysinfo::{
 };
 
 use super::config::MonitorConfig;
+use super::netdrops;
 use super::sample::{DiskRow, NetRow, Sample, ServiceRow, SystemRow};
 use crate::config::Service;
 use crate::datetime::RataTime;
@@ -57,6 +58,8 @@ pub struct Collector {
     nets: Networks,
     seen_disks: HashSet<String>,
     seen_nets: HashSet<String>,
+    /// Drop totals at the previous sample, by interface.
+    drops: HashMap<String, netdrops::Drops>,
     /// The next sample is the first: it covers less than a whole interval,
     /// so its interval amounts (I/O, network) are left empty.
     first: bool,
@@ -93,6 +96,7 @@ impl Collector {
             nets: Networks::new_with_refreshed_list(),
             seen_disks: HashSet::new(),
             seen_nets: HashSet::new(),
+            drops: netdrops::read(),
             first: true,
         };
         c.sys
@@ -206,6 +210,7 @@ impl Collector {
 
     fn net_rows(&mut self, time: RataTime, cfg: &MonitorConfig, first: bool) -> Vec<NetRow> {
         let mut rows = Vec::new();
+        let drops = netdrops::read();
         for (name, n) in self.nets.iter() {
             let loopback = n.ip_networks().iter().any(|ip| match ip.addr {
                 IpAddr::V4(a) => a.is_loopback(),
@@ -221,6 +226,14 @@ impl Collector {
             }
             let new = self.seen_nets.insert(name.clone()) || first;
             let v = |x: u64| (!new).then_some(x);
+            // Amount since the previous sample; none if the counter is new,
+            // went backwards (reset or wrapped), or is not reported.
+            let before = self.drops.get(name).copied().unwrap_or_default();
+            let now = drops.get(name).copied().unwrap_or_default();
+            let delta = |b: Option<u64>, n: Option<u64>| match (b, n) {
+                (Some(b), Some(n)) if !new && n >= b => Some(n - b),
+                _ => None,
+            };
             rows.push(NetRow {
                 time,
                 iface: name.clone(),
@@ -230,8 +243,11 @@ impl Collector {
                 tx_packets: v(n.packets_transmitted()),
                 rx_errors: v(n.errors_on_received()),
                 tx_errors: v(n.errors_on_transmitted()),
+                rx_dropped: delta(before.rx, now.rx),
+                tx_dropped: delta(before.tx, now.tx),
             });
         }
+        self.drops = drops;
         rows.sort_by(|a, b| a.iface.cmp(&b.iface));
         rows
     }
@@ -330,7 +346,7 @@ mod tests {
         assert!(
             s.net
                 .iter()
-                .all(|n| n.rx_bytes.is_none() && n.tx_errors.is_none())
+                .all(|n| n.rx_bytes.is_none() && n.tx_errors.is_none() && n.rx_dropped.is_none())
         );
         let row = &s.services[0];
         assert_eq!(row.state, State::Running, "the test process matches itself");
@@ -345,5 +361,13 @@ mod tests {
         );
         assert!(s.net.iter().all(|n| n.rx_bytes.is_some()));
         assert!(s.services[0].disk_read.is_some());
+        // Drop counters are read where the platform reports them.
+        if cfg!(any(target_os = "linux", target_os = "macos", windows)) && !s.net.is_empty() {
+            assert!(
+                s.net.iter().any(|n| n.rx_dropped.is_some()),
+                "no drop counters for {:?}",
+                s.net.iter().map(|n| &n.iface).collect::<Vec<_>>()
+            );
+        }
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "rata"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
@@ -57,6 +57,8 @@ libc = { version = "0.2", optional = true }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", optional = true, features = [
     "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
     "Win32_System_Console",
     "Win32_System_Threading",
 ] }

@@ -8,7 +8,7 @@
 //! |---|---|
 //! | `system_YYYYMMDD.csv` | sample: CPU, load, memory, swap, uptime |
 //! | `disk_YYYYMMDD.csv` | mounted filesystem: space, bytes read and written |
-//! | `net_YYYYMMDD.csv` | network interface: bytes, packets, errors |
+//! | `net_YYYYMMDD.csv` | network interface: bytes, packets, errors, drops |
 //! | `service_YYYYMMDD.csv` | configured service: state, CPU, memory, I/O, uptime |
 //!
 //! See [`sample`] for the columns. Times use the
@@ -21,6 +21,7 @@
 pub mod collect;
 pub mod config;
 pub mod csv;
+pub mod netdrops;
 pub mod sample;
 pub mod signal;
 pub mod store;

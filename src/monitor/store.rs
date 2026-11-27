@@ -406,6 +406,8 @@ mod tests {
             tx_packets: None,
             rx_errors: None,
             tx_errors: None,
+            rx_dropped: None,
+            tx_dropped: None,
         });
         w.write(&s).unwrap();
         w.write(&sample(t("14:00:30"), &["A"])).unwrap();
