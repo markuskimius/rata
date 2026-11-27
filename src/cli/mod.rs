@@ -32,7 +32,8 @@ pub const EXIT_OK: u8 = 0;
 pub const EXIT_FAILED: u8 = 1;
 /// Exit code: config or environment error.
 pub const EXIT_ERROR: u8 = 2;
-/// Exit code: `status` found a service that is not running.
+/// Exit code: `status` found a service that is not running, or `mon` found
+/// out-of-date data or a service that is not running.
 pub const EXIT_NOT_RUNNING: u8 = 3;
 
 const TOP_TEMPLATE: &str = "\
@@ -61,16 +62,22 @@ Services:
   Without names, start, stop, and restart skip services that set
   explicit_start or explicit_stop. Name them, or pass --all, to include them.
 
+Monitoring:
+  The RATA_MONITOR service (rata-monitor, set up by 'rata init') records
+  host and per-service stats every 30 seconds as CSV files in
+  $RATA/work/monitor. 'rata mon' shows the latest sample.
+
 Environment:
   RATA  Required. Absolute path to the root directory of this rata install.
-        Config is read from $RATA/work/cfg/service.toml
+        Config is read from $RATA/work/cfg/service.toml and monitor.toml
         Logs are written to $RATA/work/log/<name>_YYYYMMDD_HHMMSS.n.log
 
 Exit codes:
   0  Success
   1  One or more services failed to start or stop
   2  Config or environment error (e.g. RATA not set, invalid service.toml)
-  3  (status only) One or more services are not running
+  3  status: one or more services are not running
+     mon: the data is out of date, or a service shown is not running
 
 Run 'rata help <command>' for more on a specific command.";
 
