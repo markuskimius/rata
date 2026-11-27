@@ -2,8 +2,8 @@
 //!
 //! Start, stop, and monitor long-running services.
 //!
-//! This crate is both the `rata` command-line tool and the shared library
-//! used by the other packages of the rata suite.
+//! This crate is both the `rata` command-line tool and a library for
+//! programs that work with rata installs.
 //!
 //! Services are defined in `$RATA/work/cfg/service.toml`. A service is
 //! running when a process owned by the current user has a command line that
@@ -25,6 +25,7 @@
 
 pub mod cmdline;
 pub mod config;
+pub mod datetime;
 pub mod env;
 pub mod error;
 pub mod logfile;

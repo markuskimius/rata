@@ -6,6 +6,23 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `explicit_start` and `explicit_stop` service options: `start`, `stop`, and
+  `restart` without names skip such services. Name them, or pass the new
+  `--all` option, to include them. Skipped services are listed in the output.
+- `rata check` shows which services set `explicit_start` or `explicit_stop`.
+- `rata::datetime`: the rata datetime format
+  (`2026-11-26 14:30:00.000000000 -0400s`), used by default for timestamps
+  that rata writes.
+
+### Changed
+
+- Service names on the command line ignore case when exactly one service
+  matches (an exact match always wins). A name that matches several services
+  is an error.
+- Docs and examples use ALL CAPS service names, the new convention.
+
 ## [0.1.1] - 2026-11-26
 
 ### Added

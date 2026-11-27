@@ -1,8 +1,7 @@
 # rata — notes for Claude
 
 `rata` is one package holding both the library and the CLI, with no
-workspace. The other suite packages (`rata-mon`, `rata-db`) live in their
-own repositories and depend on this crate. User-facing docs are in
+workspace. User-facing docs are in
 `README.md`; keep it, `rata help` (`src/cli/mod.rs`), and `CHANGELOG.md` in
 sync with any behavior change.
 

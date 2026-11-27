@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use clap::{ArgAction, ColorChoice, CommandFactory, Parser, Subcommand};
 
-use crate::config::{Config, MAX_STOP_TIMEOUT};
+use crate::config::{Action, Config, MAX_STOP_TIMEOUT};
 use crate::env::Rata;
 use crate::error::Error;
 use crate::lock::Lock;
@@ -52,9 +52,13 @@ const SUB_TEMPLATE: &str = "\
 const TOP_AFTER_HELP: &str = "\
 Services:
   Commands act on all configured services, in config order (stop uses
-  reverse order). Name one or more services to act on only those:
+  reverse order). Name one or more services to act on only those; a name
+  ignores case when only one service matches it:
 
-    rata start web_api worker
+    rata start WEB_API WORKER
+
+  Without names, start, stop, and restart skip services that set
+  explicit_start or explicit_stop. Name them, or pass --all, to include them.
 
 Environment:
   RATA  Required. Absolute path to the root directory of this rata install.
@@ -73,16 +77,19 @@ const START_AFTER_HELP: &str = "\
 Starts each service whose start command (or psline) does not match a running
 process. Each start writes a new log file in $RATA/work/log. A service that
 exits within 500ms, or whose process does not match its psline, is reported
-as FAILED.";
+as FAILED. Without names, services that set explicit_start are skipped.";
 
 const STOP_AFTER_HELP: &str = "\
 Stops every process whose command line exactly matches the service's
 psline (or start, if psline is not set), including processes that were
-started without rata.";
+started without rata. Without names, services that set explicit_stop are
+skipped.";
 
 const RESTART_AFTER_HELP: &str = "\
 Stops the services in reverse config order, then starts the ones that
-stopped in config order. A service that fails to stop is not started.";
+stopped in config order. A service that fails to stop is not started.
+Without names, services that set explicit_start or explicit_stop are
+skipped.";
 
 const STATUS_AFTER_HELP: &str = "\
 Exit status is 0 if all listed services are running, 3 if any are stopped.";
@@ -128,17 +135,27 @@ enum Command {
     /// Start services that are not already running
     #[command(help_template = SUB_TEMPLATE, after_help = START_AFTER_HELP)]
     Start {
-        /// Services to start (default: all, in config order)
+        /// Services to start (default: all except explicit_start ones, in
+        /// config order)
         #[arg(value_name = "NAME")]
         names: Vec<String>,
+
+        /// Also start services that set explicit_start
+        #[arg(short, long, conflicts_with = "names")]
+        all: bool,
     },
 
     /// Stop running services
     #[command(help_template = SUB_TEMPLATE, after_help = STOP_AFTER_HELP)]
     Stop {
-        /// Services to stop (default: all, in reverse config order)
+        /// Services to stop (default: all except explicit_stop ones, in
+        /// reverse config order)
         #[arg(value_name = "NAME")]
         names: Vec<String>,
+
+        /// Also stop services that set explicit_stop
+        #[arg(short, long, conflicts_with = "names")]
+        all: bool,
 
         /// Seconds to wait after a graceful stop before force-killing
         /// [default: 10, or the service's stop_timeout]
@@ -149,9 +166,14 @@ enum Command {
     /// Stop, then start services
     #[command(help_template = SUB_TEMPLATE, after_help = RESTART_AFTER_HELP)]
     Restart {
-        /// Services to restart (default: all)
+        /// Services to restart (default: all except explicit_start and
+        /// explicit_stop ones)
         #[arg(value_name = "NAME")]
         names: Vec<String>,
+
+        /// Also restart services that set explicit_start or explicit_stop
+        #[arg(short, long, conflicts_with = "names")]
+        all: bool,
 
         /// Seconds to wait after a graceful stop before force-killing
         /// [default: 10, or the service's stop_timeout]
@@ -250,55 +272,71 @@ fn dispatch(cli: Cli) -> Result<u8, Error> {
     match command {
         Command::Help { command } => Ok(help(command.as_deref())),
         Command::CtrlBreak { pid, allowed } => Ok(ctrl_break(pid, &allowed)),
-        Command::Start { names } => {
+        Command::Start { names, all } => {
             let (rata, config) = load()?;
-            let services = config.select(&names)?;
-            let p = Printer::new(&rata, &services, quiet);
-            if services.is_empty() {
+            let sel = config.select_for(Action::Start, &names, all)?;
+            let p = Printer::for_selection(&rata, &sel, quiet);
+            if sel.services.is_empty() && sel.skipped.is_empty() {
                 p.note("no services configured");
                 return Ok(EXIT_OK);
             }
             let _lock = Lock::acquire(&rata, Lock::wait_limit())?;
-            let reports = service::start(&rata, &services)?;
+            let reports = service::start(&rata, &sel.services)?;
             reports.iter().for_each(|r| p.start(r));
+            p.skipped(Action::Start, &sel.skipped);
             Ok(if reports.iter().all(|r| r.ok()) {
                 EXIT_OK
             } else {
                 EXIT_FAILED
             })
         }
-        Command::Stop { names, timeout } => {
+        Command::Stop {
+            names,
+            all,
+            timeout,
+        } => {
             let (rata, config) = load()?;
-            let services = config.select(&names)?;
-            let p = Printer::new(&rata, &services, quiet);
-            if services.is_empty() {
+            let sel = config.select_for(Action::Stop, &names, all)?;
+            let p = Printer::for_selection(&rata, &sel, quiet);
+            if sel.services.is_empty() && sel.skipped.is_empty() {
                 p.note("no services configured");
                 return Ok(EXIT_OK);
             }
             let _lock = Lock::acquire(&rata, Lock::wait_limit())?;
-            let reports = service::stop(&rata, &services, timeout.map(Duration::from_secs), |r| {
-                p.stop(r)
-            });
+            let reports = service::stop(
+                &rata,
+                &sel.services,
+                timeout.map(Duration::from_secs),
+                |r| p.stop(r),
+            );
+            p.skipped(Action::Stop, &sel.skipped);
             Ok(if reports.iter().all(|r| r.ok()) {
                 EXIT_OK
             } else {
                 EXIT_FAILED
             })
         }
-        Command::Restart { names, timeout } => {
+        Command::Restart {
+            names,
+            all,
+            timeout,
+        } => {
             let (rata, config) = load()?;
-            let services = config.select(&names)?;
-            let p = Printer::new(&rata, &services, quiet);
-            if services.is_empty() {
+            let sel = config.select_for(Action::Restart, &names, all)?;
+            let p = Printer::for_selection(&rata, &sel, quiet);
+            if sel.services.is_empty() && sel.skipped.is_empty() {
                 p.note("no services configured");
                 return Ok(EXIT_OK);
             }
             let _lock = Lock::acquire(&rata, Lock::wait_limit())?;
-            let report =
-                service::restart(&rata, &services, timeout.map(Duration::from_secs), |r| {
-                    p.stop(r)
-                })?;
+            let report = service::restart(
+                &rata,
+                &sel.services,
+                timeout.map(Duration::from_secs),
+                |r| p.stop(r),
+            )?;
             report.started.iter().for_each(|r| p.start(r));
+            p.skipped(Action::Restart, &sel.skipped);
             Ok(if report.ok() { EXIT_OK } else { EXIT_FAILED })
         }
         Command::Status {
