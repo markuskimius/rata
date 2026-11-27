@@ -89,8 +89,8 @@ impl View<'_> {
         Some(match self.age {
             None => match &self.monitor {
                 MonitorState::Running(name) => format!(
-                    "no samples recorded yet; {name} takes its first one after one interval ({}s)",
-                    self.interval.as_secs()
+                    "no samples recorded yet; {name} takes its first one within {}s of starting",
+                    (monitor::FIRST_SAMPLE_DELAY + self.interval).as_secs()
                 ),
                 _ => format!("no samples recorded yet; {why}"),
             },

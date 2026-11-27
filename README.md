@@ -285,8 +285,10 @@ exclude = []          # network interfaces to leave out (glob patterns)
 ```
 
 - Samples are taken on the clock: with `interval = 30`, at `:00` and `:30`
-  past each minute. The first sample comes one interval after the monitor
-  starts.
+  past each minute. The first sample is taken at the first of those times
+  at least 5 seconds after the monitor starts. It covers less than a whole
+  interval, so its interval amounts (disk and network I/O, and each
+  service's disk I/O) are left empty; everything else is recorded as usual.
 - Pseudo filesystems (such as `tmpfs`, `devfs`, and macOS's
   `/System/Volumes/*`) and loopback interfaces are always left out, as are
   interfaces that have never sent or received anything.
@@ -318,7 +320,8 @@ time,service,state,pid,procs,cpu_pct,rss,disk_read,disk_written,uptime_s
   are in bytes. `read`, `written`, `rx_*`, `tx_*`, and `disk_*` are amounts
   during the interval that ended at `time`, so they can be summed or charted
   directly. An empty value means "not available" (for example, the load
-  average on Windows).
+  average on Windows, or the interval amounts in the first sample after the
+  monitor starts).
 - A service row sums the service's whole process tree: the matching
   processes and their children (on Windows, not counting the `conhost.exe`
   console host that rata gives each service). Stopped services get a row too, with

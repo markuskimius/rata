@@ -57,6 +57,9 @@ pub struct Collector {
     nets: Networks,
     seen_disks: HashSet<String>,
     seen_nets: HashSet<String>,
+    /// The next sample is the first: it covers less than a whole interval,
+    /// so its interval amounts (I/O, network) are left empty.
+    first: bool,
 }
 
 fn host_refresh() -> RefreshKind {
@@ -90,6 +93,7 @@ impl Collector {
             nets: Networks::new_with_refreshed_list(),
             seen_disks: HashSet::new(),
             seen_nets: HashSet::new(),
+            first: true,
         };
         c.sys
             .refresh_processes_specifics(ProcessesToUpdate::All, true, process_refresh());
@@ -104,7 +108,13 @@ impl Collector {
 
     /// Measure everything and return the sample. `services` are the
     /// configured services, in config order.
+    ///
+    /// The first sample after [`Collector::new`] usually covers less than a
+    /// whole interval, so its interval amounts (disk I/O, network traffic,
+    /// and per-service disk I/O) are `None`. CPU use is a rate and is
+    /// recorded as usual.
     pub fn sample(&mut self, rata: &Rata, cfg: &MonitorConfig, services: &[Service]) -> Sample {
+        let first = std::mem::replace(&mut self.first, false);
         self.sys.refresh_specifics(host_refresh());
         self.sys
             .refresh_processes_specifics(ProcessesToUpdate::All, true, process_refresh());
@@ -114,7 +124,7 @@ impl Collector {
             self.nets.refresh(true);
         }
         let time = RataTime::now();
-        let services = self.services(time, rata, services);
+        let services = self.services(time, rata, services, first);
         if !cfg.system {
             return Sample {
                 time,
@@ -127,8 +137,8 @@ impl Collector {
         Sample {
             time,
             system: Some(self.system_row(time)),
-            disks: self.disk_rows(time, cfg),
-            net: self.net_rows(time, cfg),
+            disks: self.disk_rows(time, cfg, first),
+            net: self.net_rows(time, cfg, first),
             services,
         }
     }
@@ -159,7 +169,7 @@ impl Collector {
         }
     }
 
-    fn disk_rows(&mut self, time: RataTime, cfg: &MonitorConfig) -> Vec<DiskRow> {
+    fn disk_rows(&mut self, time: RataTime, cfg: &MonitorConfig, first: bool) -> Vec<DiskRow> {
         let mut rows = Vec::new();
         let mut mounts = HashSet::new();
         for d in self.disks.iter() {
@@ -175,7 +185,7 @@ impl Collector {
             }
             // A newly mounted disk's first I/O figures are totals, not
             // amounts during the interval.
-            let new = self.seen_disks.insert(mount.clone());
+            let new = self.seen_disks.insert(mount.clone()) || first;
             let usage = d.usage();
             let total = d.total_space();
             let avail = d.available_space().min(total);
@@ -194,7 +204,7 @@ impl Collector {
         rows
     }
 
-    fn net_rows(&mut self, time: RataTime, cfg: &MonitorConfig) -> Vec<NetRow> {
+    fn net_rows(&mut self, time: RataTime, cfg: &MonitorConfig, first: bool) -> Vec<NetRow> {
         let mut rows = Vec::new();
         for (name, n) in self.nets.iter() {
             let loopback = n.ip_networks().iter().any(|ip| match ip.addr {
@@ -209,7 +219,7 @@ impl Collector {
             {
                 continue;
             }
-            let new = self.seen_nets.insert(name.clone());
+            let new = self.seen_nets.insert(name.clone()) || first;
             let v = |x: u64| (!new).then_some(x);
             rows.push(NetRow {
                 time,
@@ -226,7 +236,13 @@ impl Collector {
         rows
     }
 
-    fn services(&self, time: RataTime, rata: &Rata, services: &[Service]) -> Vec<ServiceRow> {
+    fn services(
+        &self,
+        time: RataTime,
+        rata: &Rata,
+        services: &[Service],
+        first: bool,
+    ) -> Vec<ServiceRow> {
         let table = process::table_from_system(&self.sys, true);
         services
             .iter()
@@ -275,11 +291,59 @@ impl Collector {
                     procs: Some(tree.len() as u64),
                     cpu_pct: Some(cpu),
                     rss: Some(rss),
-                    disk_read: Some(read),
-                    disk_written: Some(written),
+                    disk_read: (!first).then_some(read),
+                    disk_written: (!first).then_some(written),
                     uptime_s: uptime,
                 }
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_sample_leaves_interval_amounts_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rata = Rata::from_path(tmp.path()).unwrap();
+        let cfg = MonitorConfig::defaults(&rata.monitor_config_path());
+        let me = Service {
+            name: "ME".into(),
+            description: None,
+            start: crate::config::CommandSpec::Args(std::env::args().collect::<Vec<_>>()),
+            psline: None,
+            stop_timeout: None,
+            explicit_start: false,
+            explicit_stop: false,
+        };
+        let mut c = Collector::new();
+        let s = c.sample(&rata, &cfg, std::slice::from_ref(&me));
+        let sys = s.system.as_ref().unwrap();
+        assert!(sys.mem_total > 0 && sys.cores > 0);
+        assert!(
+            s.disks
+                .iter()
+                .all(|d| d.read.is_none() && d.written.is_none())
+        );
+        assert!(
+            s.net
+                .iter()
+                .all(|n| n.rx_bytes.is_none() && n.tx_errors.is_none())
+        );
+        let row = &s.services[0];
+        assert_eq!(row.state, State::Running, "the test process matches itself");
+        assert!(row.cpu_pct.is_some() && row.rss.is_some());
+        assert_eq!((row.disk_read, row.disk_written), (None, None));
+
+        let s = c.sample(&rata, &cfg, std::slice::from_ref(&me));
+        assert!(
+            s.disks
+                .iter()
+                .all(|d| d.read.is_some() && d.written.is_some())
+        );
+        assert!(s.net.iter().all(|n| n.rx_bytes.is_some()));
+        assert!(s.services[0].disk_read.is_some());
     }
 }
